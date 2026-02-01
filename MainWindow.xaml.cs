@@ -1,8 +1,5 @@
 ﻿using Microsoft.Win32;
 using NAudio.Wave;
-using NWaves.Audio;
-using NWaves.Features;
-using NWaves.Signals;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -21,8 +18,7 @@ namespace TimelineEditor {
   public partial class MainWindow : Window {
     private string audioPath;
     private string jsonPath;
-    private Timeline? timeline;
-    private List<PitchSample> pitchData = new();
+    private Timeline timeline;
     private CancellationTokenSource? pitchCts;
 
     // For minimap interaction
@@ -40,7 +36,7 @@ namespace TimelineEditor {
 
       audioPath = string.Empty;
       jsonPath = string.Empty;
-      timeline = null;
+      timeline = new();
 
       output = null;
       audio = null;
@@ -55,8 +51,8 @@ namespace TimelineEditor {
       playheadLine = null;
       TimelineCanvas.SizeChanged += (_, _) => UpdatePlayheadHeight();
 
-      MinimapCanvas.Loaded += (_, _) => DrawMinimap();
-      MinimapCanvas.SizeChanged += (_, _) => DrawMinimap();
+      MinimapCanvas.Loaded += (_, _) => DrawTimelineAndMinimap();
+      MinimapCanvas.SizeChanged += (_, _) => DrawTimelineAndMinimap();
     }
 
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
@@ -85,7 +81,7 @@ namespace TimelineEditor {
         NotesFileLabel.Text = "Notes File: " + System.IO.Path.GetFileName(dlg.FileName);
         timeline = loaded;
 
-        DrawTimeline();
+        DrawTimelineAndMinimap();
       }
     }
     private void BrowseAudio() {
@@ -98,14 +94,15 @@ namespace TimelineEditor {
         audioPath = dlg.FileName;
 
         LoadAudio(audioPath);
-        StartPitchExtraction(audioPath);
       }
     }
     private void ClearProject() {
       pitchCts?.Cancel();
       pitchCts = null;
 
-      timeline = null;
+      timeline = new() {
+        Length = 0,
+      };
 
       TimelineCanvas.Children.Clear();
       MinimapCanvas.Children.Clear();
@@ -119,8 +116,6 @@ namespace TimelineEditor {
 
       audioPath = string.Empty;
       jsonPath = string.Empty;
-
-      pitchData = new();
 
       UpdatePlayhead(0);
       ClearStatusBox();
@@ -155,9 +150,7 @@ namespace TimelineEditor {
         timeline = loaded;
         UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
 
-
-        // Refresh timeline + minimap
-        DrawTimeline();
+        DrawTimelineAndMinimap();
       } else {
         UpdateStatusBox("Chart generation failed. See console for details.");
       }
@@ -188,82 +181,6 @@ namespace TimelineEditor {
         UpdateStatusBox($"Error: {ex.Message}");
         return false;
       }
-    }
-    private void StartPitchExtraction(string audioPath) {
-      // Cancel any previous extraction
-      pitchCts?.Cancel();
-
-      pitchCts = new CancellationTokenSource();
-      CancellationToken token = pitchCts.Token;
-
-      Task.Run(() =>
-      {
-        try {
-          var pitch = ExtractPitchDataYin(audioPath, token); // pass token down
-          pitch = SmoothPitch(pitch, window: 5);
-          if(token.IsCancellationRequested) return;
-
-          // Update UI on main thread
-          Dispatcher.Invoke(() =>
-          {
-            pitchData = pitch;
-            DrawPitchGraph();
-          });
-        } catch(OperationCanceledException) {
-          UpdateStatusBox("Pitch Extraction Cancelled", true);
-        }
-      }, token);
-    }
-    private List<PitchSample> ExtractPitchDataYin(string audioFile, CancellationToken token, int hopSize = 1024, int minFreq = 80, int maxFreq = 1000) {
-      var pitchData = new List<PitchSample>();
-      using var fs = new FileStream(audioFile, FileMode.Open, FileAccess.Read);
-      var wave = new WaveFile(fs);
-
-      // Load and mix mono
-      DiscreteSignal signal = wave.Signals[0]; // Mono-audio
-      int sampleRate = signal.SamplingRate;
-
-      // Determine safe frame size
-      int frameSize = Math.Max(2048, (int)(2.0 * sampleRate / minFreq));
-
-      for(int pos = 0; pos + frameSize <= signal.Length; pos += hopSize) {
-        token.ThrowIfCancellationRequested();
-        float[] frame = signal[pos, pos + frameSize].Samples;
-
-        float percent = (float)pos / signal.Length * 100;
-        UpdateStatusBox($"Processing pitch: {percent:F0}%", true);
-
-        try {
-          double freq = Pitch.FromYin(frame, sampleRate, 0, frame.Length, minFreq, maxFreq);
-          pitchData.Add(new PitchSample { Time = (double)pos / sampleRate, Pitch = freq });
-        } catch(OverflowException) {
-          // Skip frames that cause overflow (silent/low-frequency)
-          pitchData.Add(new PitchSample { Time = (double)pos / sampleRate, Pitch = 0 });
-        }
-      }
-
-      UpdateStatusBox($"Extracted {pitchData.Count} pitch samples from audio.");
-      return pitchData;
-    }
-    private List<PitchSample> SmoothPitch(List<PitchSample> raw, int window = 3) {
-      var result = new List<PitchSample>(raw.Count);
-
-      for(int i = 0; i < raw.Count; i++) {
-        double sum = 0;
-        int count = 0;
-
-        for(int j = i - window; j <= i + window; j++) {
-          if(j >= 0 && j < raw.Count && raw[j].Pitch > 0) {
-            sum += raw[j].Pitch;
-            count++;
-          }
-        }
-
-        double avg = (count > 0) ? sum / count : 0;
-        result.Add(new PitchSample { Time = raw[i].Time, Pitch = avg });
-      }
-
-      return result;
     }
     #endregion
 
@@ -350,30 +267,12 @@ namespace TimelineEditor {
     #endregion
 
     #region Timeline/Minimap Rendering
-    private void UpdateTimelineCanvasWidth() {
-      double pixelsPerSecond = 100;
-
-      // Base timeline length from timeline object
-      double timelineLength = timeline?.Length ?? 0;
-
-      // Include pitch data length if it’s longer
-      if(pitchData.Count > 0) {
-        double lastPitchTime = pitchData[^1].Time; // C# 8 index from end
-        timelineLength = Math.Max(timelineLength, lastPitchTime);
-      }
-
-      // If still zero, set a minimal default to avoid zero-width canvas
-      if(timelineLength <= 0) timelineLength = 10;
-
-      TimelineCanvas.Width = timelineLength * pixelsPerSecond;
-      TimelineCanvas.Height = TimelineCanvas.ActualHeight;
-    }
     private void SetupTimelineForAudio() {
       // Determine the length of the timeline in seconds
-      double timelineLengthSeconds = timeline?.Length ?? 0;
+      double timelineLengthSeconds = timeline.Length;
 
-      if(pitchData.Count > 0) {
-        double lastPitchTime = pitchData[^1].Time;
+      if(timeline.PitchSamples.Count > 0) {
+        double lastPitchTime = timeline.PitchSamples[^1].Time;
         timelineLengthSeconds = Math.Max(timelineLengthSeconds, lastPitchTime);
       }
 
@@ -402,27 +301,79 @@ namespace TimelineEditor {
         TimelineCanvas.Children.Add(line);
       }
     }
-    private void DrawTimeline() {
-      if(timeline == null && pitchData.Count == 0) return;
-
-      UpdateTimelineCanvasWidth(); // ensure canvas width accounts for pitch
+    private void DrawTimelineAndMinimap() {
+      if(timeline == null) return;
 
       double pixelsPerSecond = 100;
-      double laneHeight = timeline != null ?  TimelineCanvas.ActualHeight / 9 : TimelineCanvas.ActualHeight;
 
-      // Remove only existing note rectangles
+      // --- Determine timeline length ---
+      double timelineLength = Math.Max(
+          timeline.Length,
+          timeline.PitchSamples.LastOrDefault()?.Time ?? 0
+      );
+      if(timelineLength <= 0) timelineLength = 10; // minimal default
+
+      TimelineCanvas.Width = timelineLength * pixelsPerSecond;
+      TimelineCanvas.Height = TimelineCanvas.ActualHeight;
+
+      // --- Clear previous TimelineCanvas children except playhead ---
       for(int i = TimelineCanvas.Children.Count - 1; i >= 0; i--) {
-        if(TimelineCanvas.Children[i] is Rectangle rect && rect.Tag?.ToString() == "note")
+        if(TimelineCanvas.Children[i] is not Line line || line != playheadLine)
           TimelineCanvas.Children.RemoveAt(i);
       }
 
-      if(timeline != null) {
-        foreach(Note note in timeline.Notes) {
-          var rect = new Rectangle {
+      // --- Draw grid ---
+      double interval = 1.0; // 1-second
+      for(double t = 0; t < timelineLength; t += interval) {
+        Line line = new Line {
+          X1 = t * pixelsPerSecond,
+          Y1 = 0,
+          X2 = t * pixelsPerSecond,
+          Y2 = TimelineCanvas.ActualHeight,
+          Stroke = Brushes.Gray,
+          StrokeThickness = 0.5,
+          IsHitTestVisible = false
+        };
+        TimelineCanvas.Children.Add(line);
+      }
+
+      // --- Draw pitch graph ---
+      if(timeline.PitchSamples.Count > 0) {
+        Polyline pitchLine = new Polyline {
+          Stroke = Brushes.Orange,
+          StrokeThickness = 1.5,
+          Opacity = 0.7,
+          Tag = "pitch",
+          IsHitTestVisible = false
+        };
+
+        double minFreq = 80, maxFreq = 1000;
+        double pitchHeightFraction = 0.7;
+        double pitchHeight = TimelineCanvas.ActualHeight * pitchHeightFraction;
+        double topOffset = TimelineCanvas.ActualHeight * (1 - pitchHeightFraction);
+
+        foreach(var sample in timeline.PitchSamples) {
+          double freq = Math.Clamp(sample.Pitch, minFreq, maxFreq);
+          double normalized = (freq - minFreq) / (maxFreq - minFreq);
+          double y = topOffset + (1 - normalized) * pitchHeight;
+          double x = sample.Time * pixelsPerSecond;
+          pitchLine.Points.Add(new Point(x, y));
+        }
+
+        TimelineCanvas.Children.Add(pitchLine);
+      }
+
+      // --- Draw notes ---
+      if(timeline.Notes.Count > 0) {
+        double laneHeight = TimelineCanvas.ActualHeight / Math.Max(1, timeline.Lanes);
+
+        foreach(var note in timeline.Notes) {
+          Rectangle rect = new Rectangle {
             Width = Math.Max(1, note.Duration * pixelsPerSecond),
             Height = laneHeight - 1,
             Fill = Brushes.Cyan,
-            Tag = "note"
+            Tag = "note",
+            IsHitTestVisible = false
           };
 
           Canvas.SetLeft(rect, note.Start * pixelsPerSecond);
@@ -432,107 +383,52 @@ namespace TimelineEditor {
         }
       }
 
-      // Ensure playhead exists
+      // --- Ensure playhead exists ---
       if(playheadLine == null)
         CreatePlayHead();
+      else
+        UpdatePlayheadHeight();
 
-      // Update minimap
-      DrawMinimap();
-      DrawMinimapViewport();
-    }
-    private void DrawPitchGraph() {
-      if(pitchData == null || pitchData.Count == 0) return;
-
-      UpdateTimelineCanvasWidth(); // ensures canvas width is correct
-
-      // Remove old pitch line
-      for(int i = TimelineCanvas.Children.Count - 1; i >= 0; i--) {
-        if(TimelineCanvas.Children[i] is Polyline pl && pl.Tag?.ToString() == "pitch")
-          TimelineCanvas.Children.RemoveAt(i);
-      }
-
-      Polyline line = new Polyline {
-        Stroke = Brushes.Orange,
-        StrokeThickness = 1.5,
-        Opacity = 0.7,
-        Tag = "pitch"
-      };
-
-      double pixelsPerSecond = 100;
-      double minFreq = 80, maxFreq = 1000;
-      double pitchHeightFraction = 0.7;
-      double pitchHeight = TimelineCanvas.ActualHeight * pitchHeightFraction;
-      double topOffset = TimelineCanvas.ActualHeight * (1 - pitchHeightFraction);
-
-      foreach(var sample in pitchData) {
-        double freq = Math.Clamp(sample.Pitch, minFreq, maxFreq);
-        double normalized = (freq - minFreq) / (maxFreq - minFreq);
-        double y = topOffset + (1 - normalized) * pitchHeight;
-        double x = sample.Time * pixelsPerSecond;
-
-        line.Points.Add(new Point(x, y));
-      }
-
-      TimelineCanvas.Children.Add(line);
-
-      DrawTimeline(); // redraw notes (if any) on top
-    }
-    private void DrawMinimap() {
+      // --- Draw minimap ---
       MinimapCanvas.Children.Clear();
-
-      if(MinimapCanvas.ActualWidth <= 0)
-        return;
-
-      // Determine total timeline length (notes or pitch)
-      double totalTimelineLength = Math.Max(
-          timeline?.Length ?? 0,
-          pitchData.LastOrDefault()?.Time ?? 0
-      );
-
-      if(totalTimelineLength <= 0)
-        return;
-
       double minimapWidth = MinimapCanvas.ActualWidth;
       double minimapHeight = MinimapCanvas.ActualHeight;
-      int lanes = timeline?.Lanes ?? 1;
-      double laneHeight = minimapHeight / lanes;
-      double scaleX = minimapWidth / totalTimelineLength;
+      if(minimapWidth > 0 && minimapHeight > 0) {
+        int lanes = Math.Max(1, timeline.Lanes);
+        double laneHeight = minimapHeight / lanes;
+        double scaleX = minimapWidth / timelineLength;
 
-      // Draw notes
-      if(timeline != null) {
-        foreach(Note note in timeline.Notes) {
-          Rectangle rect = new() {
+        // Draw notes in minimap
+        foreach(var note in timeline.Notes) {
+          Rectangle rect = new Rectangle {
             Width = Math.Max(1, note.Duration * scaleX),
             Height = laneHeight - 1,
-            Fill = Brushes.Cyan
+            Fill = Brushes.Cyan,
+            IsHitTestVisible = false
           };
-
-          double x = note.Start * scaleX;
-          double y = (lanes / 2 - note.Lane) * laneHeight;
-
-          Canvas.SetLeft(rect, x);
-          Canvas.SetTop(rect, y);
-
+          Canvas.SetLeft(rect, note.Start * scaleX);
+          Canvas.SetTop(rect, (lanes / 2 - note.Lane) * laneHeight);
           MinimapCanvas.Children.Add(rect);
         }
+
+        // Draw viewport rectangle
+        minimapViewport = new Rectangle {
+          Height = minimapHeight,
+          Stroke = Brushes.Yellow,
+          StrokeThickness = 2,
+          Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 0)),
+          IsHitTestVisible = false
+        };
+        MinimapCanvas.Children.Add(minimapViewport);
+        UpdateMinimapViewport();
       }
-
-      // Draw viewport rectangle
-      minimapViewport = new Rectangle {
-        Height = minimapHeight,
-        Stroke = Brushes.Yellow,
-        StrokeThickness = 2,
-        Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 0))
-      };
-
-      MinimapCanvas.Children.Add(minimapViewport);
-      DrawMinimapViewport();
     }
-    private void DrawMinimapViewport() {
+
+    // --- Update minimap viewport ---
+    private void UpdateMinimapViewport() {
       if(TimelineCanvas.Width <= 0) return;
 
       double minimapWidth = MinimapCanvas.ActualWidth;
-
       double totalTimelineWidth = TimelineCanvas.Width;
       double visibleWidth = TimelineScrollViewer.ViewportWidth;
 
@@ -548,6 +444,7 @@ namespace TimelineEditor {
       Canvas.SetLeft(minimapViewport, viewportX);
       Canvas.SetTop(minimapViewport, 0);
     }
+
     #endregion
 
     #region Timeline / Minimap Controls
@@ -599,8 +496,7 @@ namespace TimelineEditor {
       double minimapWidth = minimapViewport.ActualWidth;
 
       Canvas.SetLeft(minimapViewport, e.HorizontalOffset / timelineWidth * minimapWidth);
-      DrawTimeline();
-      DrawPitchGraph();
+      DrawTimelineAndMinimap();
     }
     #endregion
 
@@ -634,6 +530,9 @@ namespace TimelineEditor {
 
       [JsonPropertyName("notes")]
       public List<Note> Notes { get; set; } = new();
+
+      [JsonPropertyName("pitches")]
+      public List<PitchSample> PitchSamples { get; set; } = new();
     }
     public class Configs {
       public string? profile { get; set; } = "";
@@ -650,7 +549,9 @@ namespace TimelineEditor {
       public int Lane { get; set; }
     }
     public class PitchSample {
+      [JsonPropertyName("time")]
       public double Time { get; set; }   // seconds
+      [JsonPropertyName("pitch")]
       public double Pitch { get; set; }  // Hz or MIDI
     }
     #endregion
