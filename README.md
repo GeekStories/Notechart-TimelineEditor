@@ -49,21 +49,22 @@ dotnet run
 ## Usage
 
 1. Load an audio file (WAV recommended) or existing timeline data file.
+*Note: Audio file must be .WAV, Mono, Vocal Track (Only Vocals, no other sound) for more accuerate results*
 2. Adjust Generation settings as needed.
 3. The pitch and notes are generated automatically.
 3. Scroll and edit notes on the timeline.
 5. Export timeline data for use in projects, or OpenStar.
 
 
-## How It Uses `notechart`
+## `notechart`
 
-`notechart` is a **separate repository** responsible for audio analysis and automatic note generation.
+[notechart](https://github.com/GeekStories/notechart) is a **separate repository** responsible for audio analysis and automatic note generation.
 
 The workflow looks like this:
 
 1. Audio is loaded into the Timeline Editor.
 2. The editor invokes `notechart` as a command-line tool.
-3. `notechart` analyzes the audio and outputs note data.
+3. `notechart` analyzes the audio and outputs timeline data.
 4. Timeline Editor parses this data and displays it visually.
 5. Manual edits can be made and saved in a `notechart`-compatible format.
 
