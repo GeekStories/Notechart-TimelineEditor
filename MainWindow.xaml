@@ -10,34 +10,124 @@
 		<ToolBar DockPanel.Dock="Top">
 			<Button x:Name="OpenFileButton" Content="Open" Click="Browse_Click"/>
 			<Button x:Name="ImportFileButton" Content="Import" Click="Import_Click"/>
-			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click"/>
+			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
 			<Button x:Name="ClearAllButton" Content="Clear All" Click="ClearProject_Click"/>
 		</ToolBar>
 		<Grid Margin="10" Width="250">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
-				<RowDefinition Height="Auto"/>
 				<RowDefinition Height="*"/>
+				<RowDefinition Height="Auto" MaxHeight="120"/>
 				<RowDefinition Height="Auto"/>
 				<RowDefinition Height="Auto"/>
 			</Grid.RowDefinitions>
 
-			<!-- Metadata / Status -->
 			<StackPanel Grid.Row="0">
-				<TextBlock x:Name="NotesFileLabel" Text="Notes File: None"/>
-				<TextBlock x:Name="AudioFileLabel" Text="Audio File: None"/>
+				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,0" Stretch="Fill" X1="1" />
 			</StackPanel>
 
 			<StackPanel Grid.Row="1">
-				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,5" Stretch="Fill" X1="1" />
+				<Line Stroke="Gray" StrokeThickness="1" Margin="0,5"/>
+
+				<!-- Generator Settings -->
+				<TextBlock Text="Generator Settings" FontWeight="Bold" Margin="0,5"/>
+				
+				<!-- ANALYSIS -->
+				<TextBlock Text="Analysis" FontWeight="SemiBold" Margin="0,5"/>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Min Freq. (Hz)" Width="120"/>
+					<TextBox x:Name="MinFrequencyBox" Width="80" Text="70"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Max Freq. (Hz)" Width="120"/>
+					<TextBox x:Name="MaxFrequencyBox" Width="80" Text="1100"/>
+				</StackPanel>
+
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Window Size" Width="120"/>
+					<TextBox x:Name="WindowSizeBox" Width="80" Text="2048"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Hop Size" Width="120"/>
+					<TextBox x:Name="HopSizeBox" Width="80" Text="512"/>
+				</StackPanel>
+
+				<!-- STABILITY -->
+				<TextBlock Text="Stability" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Smooth Frames" Width="120"/>
+					<TextBox x:Name="SmoothFramesBox" Width="80" Text="5"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Stability Frames" Width="120"/>
+					<TextBox x:Name="StabilityFramesBox" Width="80" Text="6"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Hold Tolerance" Width="120"/>
+					<TextBox x:Name="HoldToleranceBox" Width="80" Text="0.75"/>
+				</StackPanel>
+
+				<!-- NOTES -->
+				<TextBlock Text="Notes" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Merge Gap" Width="120"/>
+					<TextBox x:Name="MergeGapBox" Width="80" Text="0.12"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Min Duration" Width="120"/>
+					<TextBox x:Name="MinNoteDurationBox" Width="80" Text="0.1"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Merge Tolerance" Width="120"/>
+					<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="0.5"/>
+				</StackPanel>
+
+				<!--- PHRASES -->
+				<TextBlock Text="Phrases" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Phrase Gap" Width="120"/>
+					<TextBox x:Name="PhraseGapBox" Width="80" Text="0.45"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Pitch Tolerance" Width="120"/>
+					<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="0.45"/>
+				</StackPanel>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Stretch Factor" Width="120"/>
+					<TextBox x:Name="StretchFactorBox" Width="80" Text="1.25"/>
+				</StackPanel>
+
+				<!-- Merge Gap -->
+				<TextBlock Text="Merge Gap" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+				<StackPanel Orientation="Horizontal">
+					<TextBlock Text="Final Merge Gap" Width="120"/>
+					<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
+				</StackPanel>
 			</StackPanel>
 
-			<StackPanel Grid.Row="2">
-				<TextBlock x:Name="StatusTextBlock" Text="" Margin="0,10,0,0" FontSize="8" />
+			<!-- Status -->
+			<StackPanel Grid.Row="2" VerticalAlignment="Bottom">
+				<ScrollViewer x:Name="OutputScrollView" VerticalScrollBarVisibility="Auto">
+					<TextBlock x:Name="StatusTextBlock" Text="" Margin="0,10,0,10" FontSize="8" VerticalAlignment="Bottom" />
+				</ScrollViewer>
 			</StackPanel>
 
 			<StackPanel Grid.Row="3">
-				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,5" Stretch="Fill" X1="1" />
+				<Line Stroke="Gray" StrokeThickness="2" Stretch="Fill" X1="1" Margin="0,5,0,5" />
 			</StackPanel>
 
 			<StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -66,7 +156,14 @@
               CanContentScroll="False"
               ScrollChanged="TimelineScrollViewer_ScrollChanged"
               PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
-				<Canvas Name="TimelineCanvas" Background="Transparent"/>
+			<Grid x:Name="TimelineGrid" Background="#111">
+				<!-- Layer 0: Pitch Graph -->
+				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False"/>
+				<!-- Layer 1: Notes -->
+				<Canvas x:Name="NotesCanvas" Background="Transparent"/>
+				<!-- Layer 2: Playhead -->
+				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False"/>
+			</Grid>
 		</ScrollViewer>
 	</DockPanel>
 </Window>

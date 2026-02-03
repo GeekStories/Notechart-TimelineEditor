@@ -22,7 +22,7 @@ namespace TimelineEditor {
     private CancellationTokenSource? pitchCts;
 
     // For minimap interaction
-    private Rectangle minimapViewport;
+    private Rectangle? minimapViewport;
     private bool isDraggingMinimap = false;
 
     private WaveOutEvent? output;
@@ -41,18 +41,7 @@ namespace TimelineEditor {
       output = null;
       audio = null;
 
-      minimapViewport = new Rectangle {
-        Height = 0,
-        Stroke = Brushes.Yellow,
-        StrokeThickness = 2,
-        Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 0))
-      };
-
       playheadLine = null;
-      TimelineCanvas.SizeChanged += (_, _) => UpdatePlayheadHeight();
-
-      MinimapCanvas.Loaded += (_, _) => DrawTimelineAndMinimap();
-      MinimapCanvas.SizeChanged += (_, _) => DrawTimelineAndMinimap();
     }
 
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
@@ -62,9 +51,18 @@ namespace TimelineEditor {
     private void Play_Click(object sender, RoutedEventArgs e) => Play();
     private void Stop_Click(object sender, RoutedEventArgs e) => Stop();
     private void Reset_Click(object sender, RoutedEventArgs e) => Reset();
+    private void LoadAudio(string path) {
+      SetupTimelineForAudio();
+
+      audio = new AudioFileReader(path);
+      output = new WaveOutEvent();
+      output.Init(audio);
+
+      GenerateButton.IsEnabled = true;
+      UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
+    }
 
     #region ButtonHandlers
-    // Top Bar Buttons
     private void ImportNotes() {
       OpenFileDialog dlg = new() {
         Filter = "JSON Files (*.json)|*.json"
@@ -78,10 +76,11 @@ namespace TimelineEditor {
           return;
         }
 
-        NotesFileLabel.Text = "Notes File: " + System.IO.Path.GetFileName(dlg.FileName);
         timeline = loaded;
-
+        UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
         DrawTimelineAndMinimap();
+
+        GenerateButton.IsEnabled = true;
       }
     }
     private void BrowseAudio() {
@@ -90,13 +89,17 @@ namespace TimelineEditor {
       };
 
       if(dlg.ShowDialog() == true) {
-        AudioFileLabel.Text = "Audio File: " + System.IO.Path.GetFileName(dlg.FileName);
         audioPath = dlg.FileName;
-
         LoadAudio(audioPath);
       }
     }
     private void ClearProject() {
+      Stop();
+
+      output?.Stop();
+      output?.Dispose();
+      audio?.Dispose();
+
       pitchCts?.Cancel();
       pitchCts = null;
 
@@ -104,18 +107,12 @@ namespace TimelineEditor {
         Length = 0,
       };
 
-      TimelineCanvas.Children.Clear();
+      PlayheadCanvas.Children.Clear();
       MinimapCanvas.Children.Clear();
+      NotesCanvas.Children.Clear();
+      PitchCanvas.Children.Clear();
 
-      NotesFileLabel.Text = "Notes File: None";
-      AudioFileLabel.Text = "Audio File: None";
-
-      output?.Stop();
-      output?.Dispose();
-      audio?.Dispose();
-
-      audioPath = string.Empty;
-      jsonPath = string.Empty;
+      GenerateButton.IsEnabled = true;
 
       UpdatePlayhead(0);
       ClearStatusBox();
@@ -126,24 +123,46 @@ namespace TimelineEditor {
     private async void GenerateNotes() {
       if(string.IsNullOrEmpty(audioPath)) return;
 
+      Stop(); // Kill the audio if playing
+
+
       GenerateButton.IsEnabled = false;
       UpdateStatusBox("Generating chart...");
 
-      bool success = await Task.Run(() => RunPythonGenerator(audioPath));
+      var settings = new GeneratorSettings {
+        MinFreq = double.Parse(MinFrequencyBox.Text),
+        MaxFreq = double.Parse(MaxFrequencyBox.Text),
+        WindowSize = int.Parse(WindowSizeBox.Text),
+        HopSize = int.Parse(HopSizeBox.Text),
+
+        SmoothFrames = int.Parse(SmoothFramesBox.Text),
+        StabilityFrames = int.Parse(StabilityFramesBox.Text),
+        HoldTolerance = double.Parse(HoldToleranceBox.Text),
+
+        MergeGap = double.Parse(MergeGapBox.Text),
+        MinNoteDuration = double.Parse(MinNoteDurationBox.Text),
+        NoteMergeTolerance = double.Parse(NoteMergeToleranceBox.Text),
+
+        PhraseGap = double.Parse(PhraseGapBox.Text),
+        PhrasePitchTolerance = double.Parse(PhrasePitchToleranceBox.Text),
+        StretchFactor = double.Parse(StretchFactorBox.Text),
+
+        FinalMergeGap = double.Parse(FinalMergeGapBox.Text),
+      };
+
+      bool success = await Task.Run(
+        () => RunPythonGenerator(audioPath, settings)
+      );
 
       if(success) {
-        NotesFileLabel.Text = "Notes File: " + System.IO.Path.GetFileName(jsonPath);
+        UpdateStatusBox($"Created Notes File: {System.IO.Path.GetFileName(jsonPath)}");
 
-        // Load JSON into chartData
         string jsonText = File.ReadAllText(jsonPath);
-
-        JsonSerializerOptions options = new() {
-          PropertyNameCaseInsensitive = true
-        };
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         Timeline? loaded = JsonSerializer.Deserialize<Timeline>(jsonText, options);
         if(loaded == null) {
-          MessageBox.Show("Failed to load timeline from the selected file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+          MessageBox.Show("Failed to load timeline.", "Error");
           return;
         }
 
@@ -152,17 +171,18 @@ namespace TimelineEditor {
 
         DrawTimelineAndMinimap();
       } else {
-        UpdateStatusBox("Chart generation failed. See console for details.");
+        UpdateStatusBox("Chart generation failed.");
       }
-
-      GenerateButton.IsEnabled = true;
     }
-    private bool RunPythonGenerator(string audioFile = "") {
+    private bool RunPythonGenerator(string audioFile, GeneratorSettings settings) {
       if(string.IsNullOrEmpty(audioFile)) return false;
+
       try {
+        string arguments = BuildGeneratorArguments(audioFile, settings);
+
         ProcessStartInfo psi = new() {
           FileName = "notechart",
-          Arguments = $"\"{audioFile}\"", // pass the audio file as argument
+          Arguments = arguments,
           UseShellExecute = false,
           RedirectStandardOutput = true,
           RedirectStandardError = true,
@@ -170,12 +190,26 @@ namespace TimelineEditor {
         };
 
         UpdateStatusBox("Starting pitch extraction.");
+
         using var process = new Process { StartInfo = psi };
         process.Start();
+
+        string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
+
+        if(process.ExitCode != 0) {
+          UpdateStatusBox("Generator error:");
+          UpdateStatusBox(stderr);
+          return false;
+        }
+
         UpdateStatusBox("Pitch extraction finished.");
 
-        jsonPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(audioFile), System.IO.Path.GetFileNameWithoutExtension(audioFile) + "_chart.json");
+        jsonPath = System.IO.Path.Combine(
+          System.IO.Path.GetDirectoryName(audioFile)!,
+          System.IO.Path.GetFileNameWithoutExtension(audioFile) + "_chart.json"
+        );
+
         return File.Exists(jsonPath);
       } catch(Exception ex) {
         UpdateStatusBox($"Error: {ex.Message}");
@@ -185,55 +219,39 @@ namespace TimelineEditor {
     #endregion
 
     #region Playhead
-    private void CreatePlayHead() {
-      playheadLine = new Line {
-        Stroke = Brushes.Red,
-        StrokeThickness = 2,
-        Y1 = 0,
-        Y2 = TimelineCanvas.ActualHeight,
-        IsHitTestVisible = false
-      };
-      TimelineCanvas.Children.Add(playheadLine);
-    }
     private void UpdatePlayheadHeight() {
       if(playheadLine == null) return;
 
       playheadLine.Y1 = 0;
-      playheadLine.Y2 = TimelineCanvas.ActualHeight;
+      playheadLine.Y2 = PlayheadCanvas.ActualHeight;
     }
-    private void LoadAudio(string path) {
-      output?.Stop();
-      output?.Dispose();
-      audio?.Dispose();
+    private void CreatePlayHead() {
+      PlayheadCanvas.Children.Clear();
 
-      audio = new AudioFileReader(path);
-      output = new WaveOutEvent();
-      output.Init(audio);
-
-      SetupPlayheadTimer();
-      SetupTimelineForAudio();
-      DrawTimelineGrid();
-    }
-    private void SetupPlayheadTimer() {
-      if(audio == null) return;
-
-      playheadTimer = new DispatcherTimer {
-        Interval = TimeSpan.FromMilliseconds(16) // ~60 FPS
+      var playheadLine = new Line {
+        Stroke = Brushes.Red,
+        StrokeThickness = 2,
+        Y1 = 0,
+        Y2 = PlayheadCanvas.ActualHeight,
+        X1 = 0,
+        X2 = 0,
+        Tag = "playhead",
+        IsHitTestVisible = false
       };
-      playheadTimer.Tick += (s, e) => {
-        UpdatePlayhead(audio.CurrentTime.TotalSeconds);
-      };
+
+      PlayheadCanvas.SizeChanged += (_, _) => UpdatePlayheadHeight();
+      PlayheadCanvas.Children.Add(playheadLine);
     }
     private void UpdatePlayhead(double timeSeconds) {
-      if(timeline == null || playheadLine == null) return;
-
-      double pixelsPerSecond = 100; // same scale you use everywhere
+      double pixelsPerSecond = 100;
       double x = timeSeconds * pixelsPerSecond;
 
-      playheadLine.X1 = x;
-      playheadLine.X2 = x;
+      if(PlayheadCanvas.Children.Count == 0) return;
+      if(PlayheadCanvas.Children[0] is Line line) {
+        line.X1 = line.X2 = x;
+      }
 
-      // AutoScrollTimeline(x);
+      //AutoScrollTimeline(x);
     }
     private void AutoScrollTimeline(double playheadX) {
       double left = TimelineScrollViewer.HorizontalOffset;
@@ -261,142 +279,145 @@ namespace TimelineEditor {
       if(audio == null) return;
 
       audio.Position = 0;
-
       UpdatePlayhead(0);
     }
     #endregion
 
     #region Timeline/Minimap Rendering
     private void SetupTimelineForAudio() {
-      // Determine the length of the timeline in seconds
-      double timelineLengthSeconds = timeline.Length;
-
-      if(timeline.PitchSamples.Count > 0) {
-        double lastPitchTime = timeline.PitchSamples[^1].Time;
-        timelineLengthSeconds = Math.Max(timelineLengthSeconds, lastPitchTime);
-      }
+      double timelineLengthSeconds = Math.Max(timeline.Length, timeline.PitchSamples.LastOrDefault()?.Time ?? 0);
+      if(timelineLengthSeconds <= 0) timelineLengthSeconds = 10;
 
       double pixelsPerSecond = 100;
+      double width = timelineLengthSeconds * pixelsPerSecond;
+      double height = TimelineScrollViewer.ActualHeight;
 
-      // Set the width of TimelineCanvas for scrolling
-      TimelineCanvas.Width = timelineLengthSeconds * pixelsPerSecond;
-      TimelineCanvas.Height = TimelineCanvas.ActualHeight;
+      PitchCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
+      PitchCanvas.Height = NotesCanvas.Height = PlayheadCanvas.Height = height;
 
-      // Clear previous children
-      TimelineCanvas.Children.Clear();
+      playheadTimer = new DispatcherTimer {
+        Interval = TimeSpan.FromMilliseconds(16) // ~60 FPS
+      };
+      playheadTimer.Tick += (s, e) => {
+        if(audio == null) return;
+        UpdatePlayhead(audio.CurrentTime.TotalSeconds);
+      };
+
+      // Clear previous drawings
+      PitchCanvas.Children.Clear();
+      NotesCanvas.Children.Clear();
+      PlayheadCanvas.Children.Clear();
     }
-    private void DrawTimelineGrid() {
-      double pixelsPerSecond = 100;
-      double interval = 1.0; // 1-second marks
-
-      for(double t = 0; t < TimelineCanvas.Width / pixelsPerSecond; t += interval) {
-        Line line = new Line {
-          X1 = t * pixelsPerSecond,
-          Y1 = 0,
-          X2 = t * pixelsPerSecond,
-          Y2 = TimelineCanvas.ActualHeight,
-          Stroke = Brushes.Gray,
-          StrokeThickness = 0.5
+    private void InitMinimapViewport() {
+      if(minimapViewport == null) {
+        minimapViewport = new Rectangle {
+          Stroke = Brushes.Yellow,
+          StrokeThickness = 2,
+          Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 0)),
+          IsHitTestVisible = false,
+          Height = MinimapCanvas.ActualHeight // may be 0 if called too early
         };
-        TimelineCanvas.Children.Add(line);
+
+        MinimapCanvas.Children.Add(minimapViewport);
+
+        // Force update when canvas size changes
+        MinimapCanvas.SizeChanged += (_, _) => UpdateMinimapViewport();
       }
     }
-    private void DrawTimelineAndMinimap() {
-      if(timeline == null) return;
+    private void UpdateMinimapViewport() {
+      if(NotesCanvas.Width <= 0 || MinimapCanvas.ActualWidth <= 0 || minimapViewport == null) return;
 
+      double viewportRatio = TimelineScrollViewer.ViewportWidth / NotesCanvas.Width;
+      double offsetRatio = TimelineScrollViewer.HorizontalOffset / NotesCanvas.Width;
+
+      double viewportWidth = MinimapCanvas.ActualWidth * viewportRatio;
+      double viewportX = MinimapCanvas.ActualWidth * offsetRatio;
+
+      minimapViewport.Width = viewportWidth;
+      Canvas.SetLeft(minimapViewport, viewportX);
+      Canvas.SetTop(minimapViewport, 0);
+    }
+    private void DrawNotes() {
       double pixelsPerSecond = 100;
+      if(timeline.Notes.Count == 0) return;
 
-      // --- Determine timeline length ---
-      double timelineLength = Math.Max(
-          timeline.Length,
-          timeline.PitchSamples.LastOrDefault()?.Time ?? 0
-      );
-      if(timelineLength <= 0) timelineLength = 10; // minimal default
+      double laneHeight = NotesCanvas.Height / Math.Max(1, timeline.Lanes);
 
-      TimelineCanvas.Width = timelineLength * pixelsPerSecond;
-      TimelineCanvas.Height = TimelineCanvas.ActualHeight;
-
-      // --- Clear previous TimelineCanvas children except playhead ---
-      for(int i = TimelineCanvas.Children.Count - 1; i >= 0; i--) {
-        if(TimelineCanvas.Children[i] is not Line line || line != playheadLine)
-          TimelineCanvas.Children.RemoveAt(i);
-      }
-
-      // --- Draw grid ---
-      double interval = 1.0; // 1-second
-      for(double t = 0; t < timelineLength; t += interval) {
-        Line line = new Line {
-          X1 = t * pixelsPerSecond,
-          Y1 = 0,
-          X2 = t * pixelsPerSecond,
-          Y2 = TimelineCanvas.ActualHeight,
-          Stroke = Brushes.Gray,
-          StrokeThickness = 0.5,
-          IsHitTestVisible = false
-        };
-        TimelineCanvas.Children.Add(line);
-      }
-
-      // --- Draw pitch graph ---
-      if(timeline.PitchSamples.Count > 0) {
-        Polyline pitchLine = new Polyline {
-          Stroke = Brushes.Orange,
-          StrokeThickness = 1.5,
-          Opacity = 0.7,
-          Tag = "pitch",
+      foreach(var note in timeline.Notes) {
+        Rectangle rect = new Rectangle {
+          Width = Math.Max(1, note.Duration * pixelsPerSecond),
+          Height = laneHeight - 1,
+          Fill = Brushes.Cyan,
+          Tag = "note",
           IsHitTestVisible = false
         };
 
-        double minFreq = 80, maxFreq = 1000;
-        double pitchHeightFraction = 0.7;
-        double pitchHeight = TimelineCanvas.ActualHeight * pitchHeightFraction;
-        double topOffset = TimelineCanvas.ActualHeight * (1 - pitchHeightFraction);
+        Canvas.SetLeft(rect, note.Start * pixelsPerSecond);
+        Canvas.SetTop(rect, (timeline.Lanes / 2 - note.Lane) * laneHeight);
 
-        foreach(var sample in timeline.PitchSamples) {
+        NotesCanvas.Children.Add(rect);
+      }
+    }
+    private void DrawPitchGraph() {
+      if(timeline.PitchSamples.Count == 0) return;
+
+      double minFreq = double.Parse(MinFrequencyBox.Text), maxFreq = double.Parse(MaxFrequencyBox.Text);
+      double pitchHeightFraction = 0.5;
+      double pitchHeight = PitchCanvas.Height * pitchHeightFraction;
+      double topOffset = PitchCanvas.Height * (1 - pitchHeightFraction);
+      double pixelsPerSecond = 100;
+
+      int sampleCount = timeline.PitchSamples.Count;
+      int maxPixels = (int)PitchCanvas.ActualWidth; // one point per pixel
+      int step = Math.Max(1, sampleCount / maxPixels);
+
+      var geometry = new StreamGeometry();
+      using(var ctx = geometry.Open()) {
+        bool started = false;
+        for(int i = 0; i < sampleCount; i += step) {
+          var sample = timeline.PitchSamples[i];
           double freq = Math.Clamp(sample.Pitch, minFreq, maxFreq);
           double normalized = (freq - minFreq) / (maxFreq - minFreq);
           double y = topOffset + (1 - normalized) * pitchHeight;
           double x = sample.Time * pixelsPerSecond;
-          pitchLine.Points.Add(new Point(x, y));
-        }
 
-        TimelineCanvas.Children.Add(pitchLine);
-      }
-
-      // --- Draw notes ---
-      if(timeline.Notes.Count > 0) {
-        double laneHeight = TimelineCanvas.ActualHeight / Math.Max(1, timeline.Lanes);
-
-        foreach(var note in timeline.Notes) {
-          Rectangle rect = new Rectangle {
-            Width = Math.Max(1, note.Duration * pixelsPerSecond),
-            Height = laneHeight - 1,
-            Fill = Brushes.Cyan,
-            Tag = "note",
-            IsHitTestVisible = false
-          };
-
-          Canvas.SetLeft(rect, note.Start * pixelsPerSecond);
-          Canvas.SetTop(rect, (timeline.Lanes / 2 - note.Lane) * laneHeight);
-
-          TimelineCanvas.Children.Add(rect);
+          if(!started) {
+            ctx.BeginFigure(new Point(x, y), false, false);
+            started = true;
+          } else {
+            ctx.LineTo(new Point(x, y), true, false);
+          }
         }
       }
 
-      // --- Ensure playhead exists ---
-      if(playheadLine == null)
-        CreatePlayHead();
-      else
-        UpdatePlayheadHeight();
+      geometry.Freeze();
 
-      // --- Draw minimap ---
-      MinimapCanvas.Children.Clear();
+      var path = new System.Windows.Shapes.Path {
+        Stroke = Brushes.Orange,
+        StrokeThickness = 1.5,
+        Opacity = 0.7,
+        Data = geometry,
+        Tag = "pitch",
+        IsHitTestVisible = false
+      };
+
+      PitchCanvas.Children.Add(path);
+    }
+    private void DrawTimelineAndMinimap() {
+      SetupTimelineForAudio();  // sets sizes, clears pitch/notes once
+
+      DrawPitchGraph();          // once per new timeline
+      DrawNotes();               // once per new timeline
+      CreatePlayHead();          // once
+      DrawMinimap();
+    }
+    private void DrawMinimap() {
       double minimapWidth = MinimapCanvas.ActualWidth;
       double minimapHeight = MinimapCanvas.ActualHeight;
       if(minimapWidth > 0 && minimapHeight > 0) {
         int lanes = Math.Max(1, timeline.Lanes);
         double laneHeight = minimapHeight / lanes;
-        double scaleX = minimapWidth / timelineLength;
+        double scaleX = minimapWidth / timeline.Length;
 
         // Draw notes in minimap
         foreach(var note in timeline.Notes) {
@@ -410,41 +431,15 @@ namespace TimelineEditor {
           Canvas.SetTop(rect, (lanes / 2 - note.Lane) * laneHeight);
           MinimapCanvas.Children.Add(rect);
         }
-
-        // Draw viewport rectangle
-        minimapViewport = new Rectangle {
-          Height = minimapHeight,
-          Stroke = Brushes.Yellow,
-          StrokeThickness = 2,
-          Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 0)),
-          IsHitTestVisible = false
-        };
-        MinimapCanvas.Children.Add(minimapViewport);
-        UpdateMinimapViewport();
       }
+
+      // Add viewport rectangle on top
+      if(minimapViewport == null)
+        InitMinimapViewport();
+
+      Canvas.SetZIndex(minimapViewport, 100);
+      UpdateMinimapViewport();
     }
-
-    // --- Update minimap viewport ---
-    private void UpdateMinimapViewport() {
-      if(TimelineCanvas.Width <= 0) return;
-
-      double minimapWidth = MinimapCanvas.ActualWidth;
-      double totalTimelineWidth = TimelineCanvas.Width;
-      double visibleWidth = TimelineScrollViewer.ViewportWidth;
-
-      if(totalTimelineWidth <= 0 || visibleWidth <= 0) return;
-
-      double viewportRatio = visibleWidth / totalTimelineWidth;
-      double offsetRatio = TimelineScrollViewer.HorizontalOffset / totalTimelineWidth;
-
-      double viewportWidth = minimapWidth * viewportRatio;
-      double viewportX = minimapWidth * offsetRatio;
-
-      minimapViewport.Width = viewportWidth;
-      Canvas.SetLeft(minimapViewport, viewportX);
-      Canvas.SetTop(minimapViewport, 0);
-    }
-
     #endregion
 
     #region Timeline / Minimap Controls
@@ -456,7 +451,7 @@ namespace TimelineEditor {
       ratio = Math.Clamp(ratio, 0, 1);
 
       ///double totalWidth = timeline.Length * 100;
-      double totalWidth = TimelineCanvas.Width;
+      double totalWidth = NotesCanvas.Width;
       double viewportWidth = TimelineScrollViewer.ViewportWidth;
 
       double maxOffset = Math.Max(0, totalWidth - viewportWidth);
@@ -492,11 +487,7 @@ namespace TimelineEditor {
       e.Handled = true;
     }
     public void TimelineScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) {
-      double timelineWidth = TimelineScrollViewer.ActualWidth;
-      double minimapWidth = minimapViewport.ActualWidth;
-
-      Canvas.SetLeft(minimapViewport, e.HorizontalOffset / timelineWidth * minimapWidth);
-      DrawTimelineAndMinimap();
+      UpdateMinimapViewport(); // only move the viewport rectangle
     }
     #endregion
 
@@ -507,6 +498,8 @@ namespace TimelineEditor {
           StatusTextBlock.Text = $"[{DateTime.Now:t}]: {message}\n";
         else
           StatusTextBlock.Text += $"[{DateTime.Now:t}]: {message}\n";
+
+        OutputScrollView.ScrollToBottom();
       });
     }
     private void ClearStatusBox() {
@@ -514,7 +507,66 @@ namespace TimelineEditor {
     }
     #endregion
 
+    #region CLI Helpers
+    private static string BuildGeneratorArguments(string audioFile, GeneratorSettings cfg) {
+      var args = new List<string> {
+    $"\"{audioFile}\"",
+
+    $"--window-size {cfg.WindowSize}",
+    $"--hop-size {cfg.HopSize}",
+    $"--min-freq {cfg.MinFreq}",
+    $"--max-freq {cfg.MaxFreq}",
+
+    $"--smooth-frames {cfg.SmoothFrames}",
+    $"--stability-frames {cfg.StabilityFrames}",
+    $"--hold-tolerance {cfg.HoldTolerance}",
+
+    $"--min-note-duration {cfg.MinNoteDuration}",
+    $"--merge-gap {cfg.MergeGap}",
+    $"--merge-pitch-tolerance {cfg.NoteMergeTolerance}",
+
+    $"--phrase-gap {cfg.PhraseGap}",
+    $"--phrase-pitch-tolerance {cfg.PhrasePitchTolerance}",
+    $"--stretch-factor {cfg.StretchFactor}",
+
+    $"--final-merge-gap {cfg.FinalMergeGap}",
+
+    $"--lane-range {cfg.LaneRange}"
+  };
+
+      return string.Join(" ", args);
+    }
+    #endregion
+
     #region Extra Classes
+    public class GeneratorSettings {
+      // Analysis
+      public int WindowSize { get; set; } = 2048;
+      public int HopSize { get; set; } = 512;
+      public double MinFreq { get; set; } = 70.0;
+      public double MaxFreq { get; set; } = 1100.0;
+
+      // Stability
+      public int SmoothFrames { get; set; } = 5;
+      public int StabilityFrames { get; set; } = 6;
+      public double HoldTolerance { get; set; } = 0.75;
+
+      // Notes
+      public double MinNoteDuration { get; set; } = 0.12;
+      public double MergeGap { get; set; } = 0.05;
+      public double NoteMergeTolerance { get; set; } = 0.5;
+
+      // Phrases
+      public double PhraseGap { get; set; } = 0.45;
+      public double PhrasePitchTolerance { get; set; } = 1.75;
+      public double StretchFactor { get; set; } = 1.25;
+
+      // Final
+      public double FinalMergeGap { get; set; } = 0.15;
+
+      // Lanes
+      public int LaneRange { get; set; } = 4;
+    }
     public class Timeline {
       [JsonPropertyName("name")]
       public string Name { get; set; } = "";
