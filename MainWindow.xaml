@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:TimelineEditor"
-        mc:Ignorable="d"
+        xmlns:local="clr-namespace:TimelineEditor" xmlns:oxy="http://oxyplot.org/wpf"
+		mc:Ignorable="d"
         Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
 		<ToolBar DockPanel.Dock="Top">
@@ -13,6 +13,7 @@
 			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
 			<Button x:Name="ClearAllButton" Content="Clear All" Click="ClearProject_Click"/>
 		</ToolBar>
+		<!-- Generator Settings -->
 		<Grid Margin="10" Width="250">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
@@ -28,8 +29,6 @@
 
 			<StackPanel Grid.Row="1">
 				<Line Stroke="Gray" StrokeThickness="1" Margin="0,5"/>
-
-				<!-- Generator Settings -->
 				<TextBlock Text="Generator Settings" FontWeight="Bold" Margin="0,5"/>
 				
 				<!-- ANALYSIS -->
@@ -159,6 +158,7 @@
 			<Grid x:Name="TimelineGrid" Background="#111">
 				<!-- Layer 0: Pitch Graph -->
 				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False"/>
+
 				<!-- Layer 1: Notes -->
 				<Canvas x:Name="NotesCanvas" Background="Transparent"/>
 				<!-- Layer 2: Playhead -->

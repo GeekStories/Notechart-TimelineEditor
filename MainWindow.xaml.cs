@@ -112,6 +112,8 @@ namespace TimelineEditor {
       NotesCanvas.Children.Clear();
       PitchCanvas.Children.Clear();
 
+      minimapViewport = null;
+
       GenerateButton.IsEnabled = true;
 
       UpdatePlayhead(0);
@@ -359,50 +361,88 @@ namespace TimelineEditor {
       }
     }
     private void DrawPitchGraph() {
+      PitchCanvas.Children.Clear();
+
       if(timeline.PitchSamples.Count == 0) return;
+      UpdateStatusBox($"{timeline.PitchSamples.Count} samples.");
 
-      double minFreq = double.Parse(MinFrequencyBox.Text), maxFreq = double.Parse(MaxFrequencyBox.Text);
-      double pitchHeightFraction = 0.5;
-      double pitchHeight = PitchCanvas.Height * pitchHeightFraction;
-      double topOffset = PitchCanvas.Height * (1 - pitchHeightFraction);
+      const double MaxTimeGap = 0.03;   // 30 ms
+      const double MaxMidiJump = 0.75;  // semitones
+
       double pixelsPerSecond = 100;
+      float viewStart = (float)(TimelineScrollViewer.HorizontalOffset / pixelsPerSecond);
+      float viewEnd = (float)((TimelineScrollViewer.HorizontalOffset + TimelineScrollViewer.ViewportWidth) / pixelsPerSecond);
 
-      int sampleCount = timeline.PitchSamples.Count;
-      int maxPixels = (int)PitchCanvas.ActualWidth; // one point per pixel
-      int step = Math.Max(1, sampleCount / maxPixels);
+      PitchSample? prev = null;
 
-      var geometry = new StreamGeometry();
-      using(var ctx = geometry.Open()) {
-        bool started = false;
-        for(int i = 0; i < sampleCount; i += step) {
-          var sample = timeline.PitchSamples[i];
-          double freq = Math.Clamp(sample.Pitch, minFreq, maxFreq);
-          double normalized = (freq - minFreq) / (maxFreq - minFreq);
-          double y = topOffset + (1 - normalized) * pitchHeight;
-          double x = sample.Time * pixelsPerSecond;
+      foreach(var p in timeline.PitchSamples) {
+        if(p.Time < viewStart || p.Time > viewEnd || p.Midi <= 0)
+          continue;
 
-          if(!started) {
-            ctx.BeginFigure(new Point(x, y), false, false);
-            started = true;
-          } else {
-            ctx.LineTo(new Point(x, y), true, false);
+        if(prev != null) {
+          double dt = p.Time - prev.Time;
+          double dm = Math.Abs(p.Midi - prev.Midi);
+
+          if(dt <= MaxTimeGap && dm <= MaxMidiJump) {
+            DrawLine(
+                TimeToX(prev.Time),
+                MidiToY(prev.Midi),
+                TimeToX(p.Time),
+                MidiToY(p.Midi)
+            );
           }
         }
+
+        prev = p;
       }
+    }
+    private void DrawLine(double x1, double y1, double x2, double y2) {
+      double BaseLineY = PitchCanvas.Height;
 
-      geometry.Freeze();
-
-      var path = new System.Windows.Shapes.Path {
+      Line line = new() {
+        X1 = x1,
+        Y1 = BaseLineY,
+        X2 = x2,
+        Y2 = y2,
         Stroke = Brushes.Orange,
-        StrokeThickness = 1.5,
+        StrokeThickness = 2,
         Opacity = 0.7,
-        Data = geometry,
         Tag = "pitch",
         IsHitTestVisible = false
       };
-
-      PitchCanvas.Children.Add(path);
+      PitchCanvas.Children.Add(line);
     }
+    private void DrawCircle(double x, double y, double radius) {
+      Ellipse ellipse = new() {
+        Width = radius * 2,
+        Height = radius * 2,
+        Fill = Brushes.Orange,
+        Opacity = 0.7,
+        Tag = "pitch",
+        IsHitTestVisible = false
+      };
+      Canvas.SetLeft(ellipse, x - radius);
+      Canvas.SetTop(ellipse, y - radius);
+      PitchCanvas.Children.Add(ellipse);
+    } 
+    private double TimeToX(double timeSeconds) {
+      double pixelsPerSecond = 100;
+      return timeSeconds * pixelsPerSecond;
+    }
+    private double MidiToY(double midi) {
+      double minMidi = FrequencyToMidi(double.Parse(MinFrequencyBox.Text));
+      double maxMidi = FrequencyToMidi(double.Parse(MaxFrequencyBox.Text));
+      double pitchHeightFraction = 0.5;
+      double pitchHeight = PitchCanvas.Height * pitchHeightFraction;
+      double topOffset = PitchCanvas.Height * (1 - pitchHeightFraction);
+      double normalized = (midi - minMidi) / (maxMidi - minMidi);
+      normalized = Math.Clamp(normalized, 0, 1);
+      return topOffset + (1 - normalized) * pitchHeight;
+    }
+    private double FrequencyToMidi(double frequency) {
+      return 69 + 12 * Math.Log2(frequency / 440.0);
+    }
+
     private void DrawTimelineAndMinimap() {
       SetupTimelineForAudio();  // sets sizes, clears pitch/notes once
 
@@ -487,6 +527,7 @@ namespace TimelineEditor {
       e.Handled = true;
     }
     public void TimelineScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) {
+      DrawPitchGraph();
       UpdateMinimapViewport(); // only move the viewport rectangle
     }
     #endregion
@@ -604,7 +645,9 @@ namespace TimelineEditor {
       [JsonPropertyName("time")]
       public double Time { get; set; }   // seconds
       [JsonPropertyName("pitch")]
-      public double Pitch { get; set; }  // Hz or MIDI
+      public double Pitch { get; set; }  // Hz
+      [JsonPropertyName("midi")]
+      public double Midi { get; set; }   // Midi
     }
     #endregion
   }
