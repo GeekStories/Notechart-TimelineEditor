@@ -6,14 +6,14 @@
 
 - Load audio files and view pitch graphs
 - Edit, move, or delete notes interactively
-- Generate timelines with `notechart` and visualize them
+- Generate timelines with [`notechart`](#notechart) and visualize them
 - Export data for Unity or other projects
 
 ## Requirements
 
 - Windows OS
 - .NET 6.0 or later
-- Python with `notechart` installed
+- Python with [`notechart`](#notechart) installed
 
 ```bash
 pip install notechart
@@ -56,7 +56,7 @@ dotnet run
 5. Export timeline data for use in projects, or OpenStar.
 
 
-## `notechart`
+# notechart
 
 [notechart](https://github.com/GeekStories/notechart) is a **separate repository** responsible for audio analysis and automatic note generation.
 
