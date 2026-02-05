@@ -30,7 +30,7 @@ Download latest release from the [GitHub Releases](https://github.com/GeekStorie
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/timeline-editor.git
+git clone https://github.com/GeekStories/Notechart-TimelineEditor.git
 cd timeline-editor
 ```
 
