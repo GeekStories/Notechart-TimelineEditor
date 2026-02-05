@@ -3,22 +3,24 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:TimelineEditor" xmlns:oxy="http://oxyplot.org/wpf"
+        xmlns:local="clr-namespace:TimelineEditor"
 		mc:Ignorable="d"
         Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
 		<ToolBar DockPanel.Dock="Top">
 			<Button x:Name="OpenFileButton" Content="Open" Click="Browse_Click"/>
 			<Button x:Name="ImportFileButton" Content="Import" Click="Import_Click"/>
+			<Button x:Name="OpenSettingsWindowButton" Content="Settings" Click="OpenSettings_Click"/>
 			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
-			<Button x:Name="ClearAllButton" Content="Clear All" Click="ClearProject_Click"/>
+			<ComboBox x:Name="ConfigSelector" Width="160" Text="No configs found" SelectionChanged="ConfigSelector_SelectionChanged" Margin="10,0,1,0" />
 		</ToolBar>
 		<!-- Generator Settings -->
 		<Grid Margin="10" Width="250">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
 				<RowDefinition Height="*"/>
-				<RowDefinition Height="Auto" MaxHeight="120"/>
+				<RowDefinition Height="Auto" />
+				<RowDefinition Height="Auto"/>
 				<RowDefinition Height="Auto"/>
 				<RowDefinition Height="Auto"/>
 			</Grid.RowDefinitions>
@@ -26,6 +28,9 @@
 			<StackPanel Grid.Row="0">
 				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,0" Stretch="Fill" X1="1" />
 			</StackPanel>
+
+			<Button x:Name="ClearAllButton" Content="Clear Timeline" Click="ClearProject_Click"/>
+
 
 			<StackPanel Grid.Row="1">
 				<Line Stroke="Gray" StrokeThickness="1" Margin="0,5"/>
@@ -116,11 +121,16 @@
 					<TextBlock Text="Final Merge Gap" Width="120"/>
 					<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
 				</StackPanel>
+				
+				<StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Center">
+					<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" Margin="0,0,5,0" />
+					<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" />
+				</StackPanel>
 			</StackPanel>
 
 			<!-- Status -->
 			<StackPanel Grid.Row="2" VerticalAlignment="Bottom">
-				<ScrollViewer x:Name="OutputScrollView" VerticalScrollBarVisibility="Auto">
+				<ScrollViewer x:Name="OutputScrollView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
 					<TextBlock x:Name="StatusTextBlock" Text="" Margin="0,10,0,10" FontSize="8" VerticalAlignment="Bottom" />
 				</ScrollViewer>
 			</StackPanel>

@@ -21,6 +21,8 @@ namespace TimelineEditor {
     private Timeline timeline;
     private CancellationTokenSource? pitchCts;
 
+    private SettingsWindow SettingsWindow = new();
+
     // For minimap interaction
     private Rectangle? minimapViewport;
     private bool isDraggingMinimap = false;
@@ -30,6 +32,11 @@ namespace TimelineEditor {
     private DispatcherTimer? playheadTimer;
 
     private Line? playheadLine;
+
+    private Dictionary<string, GeneratorSettings> configs;
+    private GeneratorSettings CurrentConfig => configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) ? cfg : new GeneratorSettings();
+
+    string configFolder => Properties.Settings.Default.ConfigFolder;
 
     public MainWindow() {
       InitializeComponent();
@@ -43,8 +50,19 @@ namespace TimelineEditor {
 
       playheadLine = null;
 
+      configs = new();
+
       // Force update when canvas size changes
       MinimapCanvas.SizeChanged += (_, _) => DrawMinimap();
+
+      LoadConfigs();
+      ConfigWatcherService.ConfigsChanged += LoadConfigs;
+    }
+
+    protected override void OnClosed(EventArgs e) {
+      ConfigWatcherService.ConfigsChanged -= LoadConfigs;
+      Application.Current.Shutdown();
+      base.OnClosed(e);
     }
 
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
@@ -54,6 +72,11 @@ namespace TimelineEditor {
     private void Play_Click(object sender, RoutedEventArgs e) => Play();
     private void Stop_Click(object sender, RoutedEventArgs e) => Stop();
     private void Reset_Click(object sender, RoutedEventArgs e) => Reset();
+    private void OpenSettings_Click(object sender, RoutedEventArgs e) => OpenSettingsWindow();
+    private void SaveGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveCurrentConfig();
+    private void SaveNewGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveNewConfig();
+    private void ConfigSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => SelectConfig();
+    
     private void LoadAudio(string path) {
       SetupTimelineForAudio();
 
@@ -64,6 +87,151 @@ namespace TimelineEditor {
       GenerateButton.IsEnabled = true;
       UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
     }
+
+    #region Config Handler
+    public void LoadConfigs() {
+      UpdateStatusBox($"Loading configurations: {configFolder}");
+
+      ConfigSelector.ItemsSource = null;
+
+      if(string.IsNullOrWhiteSpace(configFolder) || !Directory.Exists(configFolder))
+        return;
+
+      List<ComboBoxItem> items = new();
+      foreach(string path in Directory.GetFiles(configFolder, "*.json")) {
+        try {
+          string? json = File.ReadAllText(path);
+          if(json == null) {
+            Debug.WriteLine("Failed to read JSON");
+            continue;
+          }
+
+          GeneratorSettings? config = JsonSerializer.Deserialize<GeneratorSettings>(json);
+          if(config == null) {
+            Debug.WriteLine("Failed to deserialize JSON");
+            continue;
+          }
+
+          Debug.WriteLine(config.Profile);
+
+          ComboBoxItem item = new() {
+            Content = config.Profile,
+            Tag = path,
+          };
+
+          items.Add(item);
+          configs[config.Profile] = config;
+          UpdateStatusBox("Loaded Profile: " + config.Profile);
+
+        } catch(Exception ex) {
+          UpdateStatusBox("Error loading config: " + ex.Message);
+          Debug.WriteLine(ex);
+        }
+      }
+
+      ConfigSelector.ItemsSource = items;
+
+      string lastFile = Properties.Settings.Default.LastConfigFile;
+
+      if(lastFile != "") {
+        UpdateStatusBox($"Found last used config: {lastFile}.json");
+        LoadConfig(Properties.Settings.Default.LastConfigFile);
+        ConfigSelector.SelectedIndex = items.FindIndex(item => (string)item.Content == lastFile);
+      } else if(items?.Count == 1) {
+        ConfigSelector.SelectedIndex = 0;
+      }
+    }
+    private void LoadConfig(string profile) {
+      if(configs.TryGetValue(profile, out var config)) {
+        MinFrequencyBox.Text = config.MinFreq.ToString();
+        MaxFrequencyBox.Text = config.MaxFreq.ToString();
+        WindowSizeBox.Text = config.WindowSize.ToString();
+        HopSizeBox.Text = config.HopSize.ToString();
+        SmoothFramesBox.Text = config.SmoothFrames.ToString();
+        StabilityFramesBox.Text = config.StabilityFrames.ToString();
+        HoldToleranceBox.Text = config.HoldTolerance.ToString();
+        MergeGapBox.Text = config.MergeGap.ToString();
+        MinNoteDurationBox.Text = config.MinNoteDuration.ToString();
+        NoteMergeToleranceBox.Text = config.NoteMergeTolerance.ToString();
+        PhraseGapBox.Text = config.PhraseGap.ToString();
+        PhrasePitchToleranceBox.Text = config.PhrasePitchTolerance.ToString();
+        StretchFactorBox.Text = config.StretchFactor.ToString();
+        FinalMergeGapBox.Text = config.FinalMergeGap.ToString();
+
+        Properties.Settings.Default.LastConfigFile = config.Profile;
+        Properties.Settings.Default.Save();
+
+        UpdateStatusBox($"Loaded configuration: {config.Profile}.json");
+      } else {
+        MessageBox.Show("Failed to load configuration.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+      }
+    }
+    private void SaveConfig(string profile) {
+      GeneratorSettings config = new() {
+        Profile = profile,
+        MinFreq = double.Parse(MinFrequencyBox.Text),
+        MaxFreq = double.Parse(MaxFrequencyBox.Text),
+        WindowSize = int.Parse(WindowSizeBox.Text),
+        HopSize = int.Parse(HopSizeBox.Text),
+        SmoothFrames = int.Parse(SmoothFramesBox.Text),
+        StabilityFrames = int.Parse(StabilityFramesBox.Text),
+        HoldTolerance = double.Parse(HoldToleranceBox.Text),
+        MergeGap = double.Parse(MergeGapBox.Text),
+        MinNoteDuration = double.Parse(MinNoteDurationBox.Text),
+        NoteMergeTolerance = double.Parse(NoteMergeToleranceBox.Text),
+        PhraseGap = double.Parse(PhraseGapBox.Text),
+        PhrasePitchTolerance = double.Parse(PhrasePitchToleranceBox.Text),
+        StretchFactor = double.Parse(StretchFactorBox.Text),
+        FinalMergeGap = double.Parse(FinalMergeGapBox.Text)
+      };
+
+      try {
+        string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+        if(string.IsNullOrWhiteSpace(configFolder) || !Directory.Exists(configFolder)) {
+          MessageBox.Show("Config folder is not set or does not exist. Please set it in the settings.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+          return;
+        }
+
+        string filePath = System.IO.Path.Combine(configFolder, $"{config.Profile}.json");
+        File.WriteAllText(filePath, json);
+        UpdateStatusBox($"Configuration updated: {config.Profile}.json");
+        LoadConfigs(); // Refresh the list
+      } catch(Exception ex) {
+        MessageBox.Show($"Error updating configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+      }
+    }
+    private void SaveCurrentConfig() {
+      SaveConfig(CurrentConfig.Profile);
+    }
+    private void SaveNewConfig() {
+      // Prompt for name
+      string name = Microsoft.VisualBasic.Interaction.InputBox(
+        "Enter a name for the current configuration:",
+        "Save Configuration",
+        $"new_config"
+      );
+
+      if(string.IsNullOrWhiteSpace(name)) {
+        MessageBox.Show("Configuration name cannot be empty.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        return;
+      }
+
+      // Check if name already exists
+      if(configs.ContainsKey(name)) {
+        var result = MessageBox.Show(
+          "A configuration with this name already exists. Do you want to overwrite it?",
+          "Confirm Overwrite",
+          MessageBoxButton.YesNo,
+          MessageBoxImage.Warning
+        );
+        if(result != MessageBoxResult.Yes) {
+          return;
+        }
+      }
+
+      SaveConfig(name);
+    }
+    #endregion
 
     #region ButtonHandlers
     private void ImportNotes() {
@@ -117,6 +285,19 @@ namespace TimelineEditor {
 
       UpdatePlayhead(0);
       ClearStatusBox();
+    }
+    private void OpenSettingsWindow() {
+      if(SettingsWindow.IsVisible) {
+        SettingsWindow.Focus();
+      } else {
+        SettingsWindow = new SettingsWindow();
+        SettingsWindow.Show();
+      }
+    }
+    private void SelectConfig() {
+      if(ConfigSelector.SelectedItem is ComboBoxItem item && item.Content is string v) {
+        LoadConfig(v);
+      }
     }
     #endregion
 
@@ -359,7 +540,7 @@ namespace TimelineEditor {
     private void DrawPitchGraph() {
       if(timeline.PitchSamples.Count == 0) return;
       PitchCanvas.Children.Clear();
-      
+
 
       const double MaxTimeGap = 0.03;   // 30 ms
       const double MaxMidiJump = 0.75;  // semitones
@@ -548,7 +729,7 @@ namespace TimelineEditor {
 
     $"--min-note-duration {cfg.MinNoteDuration}",
     $"--merge-gap {cfg.MergeGap}",
-    $"--merge-pitch-tolerance {cfg.NoteMergeTolerance}",
+    $"--note-pitch-tolerance {cfg.NoteMergeTolerance}",
 
     $"--phrase-gap {cfg.PhraseGap}",
     $"--phrase-pitch-tolerance {cfg.PhrasePitchTolerance}",
@@ -565,31 +746,48 @@ namespace TimelineEditor {
 
     #region Extra Classes
     public class GeneratorSettings {
+      [JsonPropertyName("profile")]
+      public string Profile { get; set; } = "";
       // Analysis
+      [JsonPropertyName("window_size")]
       public int WindowSize { get; set; } = 2048;
+      [JsonPropertyName("hop_size")]
       public int HopSize { get; set; } = 512;
+      [JsonPropertyName("min_freq")]
       public double MinFreq { get; set; } = 70.0;
+      [JsonPropertyName("max_freq")]
       public double MaxFreq { get; set; } = 1100.0;
 
       // Stability
+      [JsonPropertyName("smooth_frames")]
       public int SmoothFrames { get; set; } = 5;
+      [JsonPropertyName("stability_frames")]
       public int StabilityFrames { get; set; } = 6;
+      [JsonPropertyName("hold_tolerance")]
       public double HoldTolerance { get; set; } = 0.75;
 
       // Notes
+      [JsonPropertyName("min_note_duration")]
       public double MinNoteDuration { get; set; } = 0.12;
+      [JsonPropertyName("merge_gap")]
       public double MergeGap { get; set; } = 0.05;
+      [JsonPropertyName("note_merge_tolerance")]
       public double NoteMergeTolerance { get; set; } = 0.5;
 
       // Phrases
+      [JsonPropertyName("phrase_gap")]
       public double PhraseGap { get; set; } = 0.45;
+      [JsonPropertyName("phrase_pitch_tolerance")]
       public double PhrasePitchTolerance { get; set; } = 1.75;
+      [JsonPropertyName("stretch_factor")]
       public double StretchFactor { get; set; } = 1.25;
 
       // Final
+      [JsonPropertyName("final_merge_gap")]
       public double FinalMergeGap { get; set; } = 0.15;
 
       // Lanes
+      [JsonPropertyName("lane_range")]
       public int LaneRange { get; set; } = 4;
     }
     public class Timeline {
