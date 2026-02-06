@@ -47,8 +47,6 @@ namespace TimelineEditor {
     private Point dragStartMouse;
     private double dragStartX;
     private double dragStartY;
-
-    private const double RemoveThresholdSeconds = 0.2; // ~200ms tolerance
     private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
 
     private Line? playheadLine;
@@ -629,7 +627,7 @@ namespace TimelineEditor {
         line.X1 = line.X2 = x;
       }
 
-      //AutoScrollTimeline(x);
+      if(FollowPlayheadCheckbox.IsChecked == true) AutoScrollTimeline(x);
     }
     private void AutoScrollTimeline(double playheadX) {
       double left = TimelineScrollViewer.HorizontalOffset;
@@ -677,6 +675,10 @@ namespace TimelineEditor {
       };
       playheadTimer.Tick += (s, e) => {
         if(audio == null) return;
+        if(audio.CurrentTime.TotalSeconds >= audio.TotalTime.TotalSeconds && LoopCheckbox.IsChecked == true) {
+          Reset();
+          return;
+        }
         UpdatePlayhead(audio.CurrentTime.TotalSeconds);
       };
 
@@ -974,7 +976,15 @@ namespace TimelineEditor {
       return true;
     }
     private void Timeline_MouseUp(object sender, MouseButtonEventArgs e) {
-      if(e.ChangedButton == MouseButton.Middle) {
+      if(e.ChangedButton == MouseButton.Left) {
+        if(hoveredNote != null) return; // Don't seek if we were dragging a note
+
+        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
+        if(audio != null) {
+          audio.CurrentTime = TimeSpan.FromSeconds(time);
+          UpdatePlayhead(time);
+        }
+      } else if(e.ChangedButton == MouseButton.Middle) {
         if(timeline == null) return;
 
         int lane = timeline.Lanes - 1 - (int)(e.GetPosition(NotesCanvas).Y / LanePixelHeight);
@@ -1049,37 +1059,6 @@ namespace TimelineEditor {
     }
     #endregion
 
-    #region CLI Helpers
-    private static string BuildGeneratorArguments(string audioFile, GeneratorSettings cfg) {
-      var args = new List<string> {
-    $"\"{audioFile}\"",
-
-    $"--window-size {cfg.WindowSize}",
-    $"--hop-size {cfg.HopSize}",
-    $"--min-freq {cfg.MinFreq}",
-    $"--max-freq {cfg.MaxFreq}",
-
-    $"--smooth-frames {cfg.SmoothFrames}",
-    $"--stability-frames {cfg.StabilityFrames}",
-    $"--hold-tolerance {cfg.HoldTolerance}",
-
-    $"--min-note-duration {cfg.MinNoteDuration}",
-    $"--merge-gap {cfg.MergeGap}",
-    $"--note-pitch-tolerance {cfg.NoteMergeTolerance}",
-
-    $"--phrase-gap {cfg.PhraseGap}",
-    $"--phrase-pitch-tolerance {cfg.PhrasePitchTolerance}",
-    $"--stretch-factor {cfg.StretchFactor}",
-
-    $"--final-merge-gap {cfg.FinalMergeGap}",
-
-    $"--lane-range {cfg.LaneRange}"
-  };
-
-      return string.Join(" ", args);
-    }
-    #endregion
-
     #region Extra Classes
     public class Timeline {
       [JsonPropertyName("name")]
@@ -1097,6 +1076,7 @@ namespace TimelineEditor {
       [JsonPropertyName("pitches")]
       public List<PitchSample> PitchSamples { get; set; } = new();
     }
+
     public class Note {
       [JsonPropertyName("start")]
       public double Start { get; set; }
@@ -1106,8 +1086,12 @@ namespace TimelineEditor {
 
       [JsonPropertyName("lane")]
       public int Lane { get; set; }
+
+      [JsonPropertyName("type")]
+      public string Type { get; set; } = "normal"; 
     }
-    public class PitchSample {
+
+  public class PitchSample {
       [JsonPropertyName("time")]
       public double Time { get; set; }   // seconds
       [JsonPropertyName("pitch")]

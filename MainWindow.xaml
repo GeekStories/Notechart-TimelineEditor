@@ -171,9 +171,11 @@
 			</StackPanel>
 
 			<StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-				<Button Content="▶ Play" Click="Play_Click"/>
-				<Button Content="⏸ Stop" Click="Stop_Click" Margin="4,0"/>
-				<Button Content="⏮ Reset" Click="Reset_Click"/>
+				<CheckBox x:Name="LoopCheckbox" Content="Loop" VerticalAlignment="Center" Margin="0,0,10,0"/>
+				<CheckBox x:Name="FollowPlayheadCheckbox" Content="Autoscroll" VerticalAlignment="Center" Margin="0,0,10,0"/>
+				<Button Content="▶" Click="Play_Click" Padding="10,5,10,5"/>
+				<Button Content="⏸" Click="Stop_Click" Padding="10,5,10,5" Margin="1,0,1,0"/>
+				<Button Content="⏮" Click="Reset_Click" Padding="10,5,10,5"/>
 			</StackPanel>
 		</Grid>
 
@@ -202,7 +204,7 @@
 				<!-- Layer 1: Notes -->
 				<Canvas x:Name="NotesCanvas" Background="Transparent" MouseUp="Timeline_MouseUp" MouseMove="NotesCanvas_MouseMove" />
 				<!-- Layer 2: Playhead -->
-				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False"/>
+				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False" />
 			</Grid>
 		</ScrollViewer>
 	</DockPanel>
