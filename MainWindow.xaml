@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TimelineEditor"
 		mc:Ignorable="d"
+		KeyUp="Window_KeyUp"
         Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
 		<ToolBar DockPanel.Dock="Top" VerticalAlignment="Center">
@@ -33,8 +34,19 @@
 			</Grid.RowDefinitions>
 
 			<StackPanel Grid.Row="0" Orientation="Vertical">
-				<Line Stroke="Gray" StrokeThickness="2" Margin="0,0,0,5" Stretch="Fill" X1="1" />
-				<Button x:Name="ClearAllButton" Content="Clear Timelines" Click="ClearProject_Click"/>
+				<Grid>
+					<Grid.ColumnDefinitions>
+						<ColumnDefinition Width="*" />
+						<ColumnDefinition Width="*" />
+					</Grid.ColumnDefinitions>
+					<StackPanel Grid.Column="0" Margin="0,0,5,0">
+						<Button x:Name="ClearAllButton" Content="Clear Timeline" Click="ClearProject_Click"/>
+					</StackPanel>
+					<StackPanel Grid.Column="1" Margin="5,0,0,0">
+						<Button x:Name="SaveTimelineButton" Content="Save Timeline" Click="SaveProject_Click"/>
+					</StackPanel>
+				</Grid>
+				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,0" Stretch="Fill" X1="1" />
 			</StackPanel>
 
 			<ScrollViewer Grid.Row="1"
@@ -128,6 +140,11 @@
 						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
 					</StackPanel>
 
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Lanes:" Width="120" />
+						<TextBlock x:Name="LaneCountTextBlock" Width="80" Text="" />
+					</StackPanel>
+
 					<StackPanel Orientation="Horizontal" Width="250">
 						<UniformGrid Columns="3" Margin="0,10,0,5" HorizontalAlignment="Center" Width="250">
 							<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" />
@@ -179,11 +196,11 @@
               CanContentScroll="False"
               ScrollChanged="TimelineScrollViewer_ScrollChanged"
               PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
-			<Grid x:Name="TimelineGrid" Background="#111">
+			<Grid x:Name="TimelineGrid" Background="#111" VerticalAlignment="stretch">
 				<!-- Layer 0: Pitch Graph -->
 				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False"/>
 				<!-- Layer 1: Notes -->
-				<Canvas x:Name="NotesCanvas" Background="Transparent"/>
+				<Canvas x:Name="NotesCanvas" Background="Transparent" MouseUp="Timeline_MouseUp" MouseMove="NotesCanvas_MouseMove" />
 				<!-- Layer 2: Playhead -->
 				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False"/>
 			</Grid>

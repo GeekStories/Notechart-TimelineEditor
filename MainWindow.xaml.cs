@@ -16,11 +16,15 @@ namespace TimelineEditor {
   /// Interaction logic for MainWindow.xaml
   /// </summary>
   public partial class MainWindow : Window {
-    
+
     // State
     private string audioPath;
     private Timeline timeline;
     private Dictionary<string, GeneratorSettings> configs;
+
+    Note? hoveredNote = null;
+    double splitPreviewTime = 0;
+    Line? splitPreviewLine = null;
 
     // Services
     private readonly NotechartGenerator _generator = new();
@@ -37,28 +41,36 @@ namespace TimelineEditor {
     private AudioFileReader? audio;
     private DispatcherTimer? playheadTimer;
 
+    private Rectangle? draggedNoteRect;
+    private Note? draggedNote;
+    private Note? original; // for reverting if placement fails
+    private Point dragStartMouse;
+    private double dragStartX;
+    private double dragStartY;
+
+    private const double RemoveThresholdSeconds = 0.2; // ~200ms tolerance
+    private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
+
     private Line? playheadLine;
-    private GeneratorSettings? CurrentConfig => 
-      configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) 
-      ? cfg 
+    private GeneratorSettings? CurrentConfig =>
+      configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg)
+      ? cfg
       : null;
     private static string ConfigFolder => Properties.Settings.Default.ConfigFolder;
-
     public MainWindow() {
       InitializeComponent();
 
       audioPath = string.Empty;
       timeline = new();
-
-      output = null;
-      audio = null;
-
-      playheadLine = null;
-
       configs = new();
 
       // Force update when canvas size changes
-      MinimapCanvas.SizeChanged += (_, _) => DrawMinimap();
+      TimelineGrid.SizeChanged += (_, __) => {
+        DrawNotes();
+        DrawPitchGraph();
+        CreatePlayHead();
+      };
+      MinimapCanvas.SizeChanged += (s, e) => DrawMinimap();
 
       LoadConfigs();
       ConfigWatcherService.ConfigsChanged += LoadConfigs;
@@ -73,6 +85,7 @@ namespace TimelineEditor {
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
     private void Browse_Click(object sender, RoutedEventArgs e) => BrowseAudio();
     private void ClearProject_Click(object sender, RoutedEventArgs e) => ClearTimeline();
+    private void SaveProject_Click(object sender, RoutedEventArgs e) => SaveTimeline();
     private void GenerateNotes_Click(object sender, RoutedEventArgs e) => GenerateNotes();
     private void Play_Click(object sender, RoutedEventArgs e) => Play();
     private void Stop_Click(object sender, RoutedEventArgs e) => Stop();
@@ -81,7 +94,175 @@ namespace TimelineEditor {
     private void SaveGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveCurrentConfig();
     private void SaveNewGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveNewConfig();
     private void ConfigSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => SelectConfig();
-    private void DeleteCurrentConfig_Click(object sender, RoutedEventArgs e) => DeleteCurrentConfig();
+    private void DeleteCurrentConfig_Click(object sendNotesCanvas, RoutedEventArgs e) => DeleteCurrentConfig();
+    private void Window_KeyUp(object sender, KeyEventArgs e) {
+      if(e.Key == Key.S)
+        TrySplitHoveredNote();
+    }
+    private void TrySplitHoveredNote() {
+      if(hoveredNote == null) return;
+      SplitNote(hoveredNote, splitPreviewTime);
+      ClearSplitPreview();
+    }
+
+    private void Note_MouseDown(object sender, MouseButtonEventArgs e) {
+      if(sender is not Rectangle rect) return;
+      if(rect.Tag is not Note note) return;
+
+      original = new Note {
+        Start = note.Start,
+        Lane = note.Lane,
+        Duration = note.Duration
+      };
+
+      draggedNoteRect = rect;
+      draggedNote = note;
+
+      dragStartMouse = e.GetPosition(NotesCanvas);
+      dragStartX = Canvas.GetLeft(rect);
+      dragStartY = Canvas.GetTop(rect);
+
+      rect.CaptureMouse();
+      e.Handled = true;
+    }
+    private void Note_MouseMove(object sender, MouseEventArgs e) {
+      if(draggedNoteRect == null || draggedNote == null) return;
+      if(e.LeftButton != MouseButtonState.Pressed) return;
+
+      Point pos = e.GetPosition(NotesCanvas);
+      Vector delta = pos - dragStartMouse;
+
+      // --- Time (X axis) ---
+      double newX = Math.Max(0, dragStartX + delta.X);
+      Canvas.SetLeft(draggedNoteRect, newX);
+      draggedNote.Start = Math.Round(newX / PixelsPerSecond, 3);
+
+      // --- Lane (Y axis) ---
+      double newY = dragStartY + delta.Y;
+      double clampedY = Math.Clamp(newY, 0, NotesCanvas.ActualHeight);
+
+      double laneFloat = (clampedY + LanePixelHeight / 2) / LanePixelHeight;
+      int laneIndex = (int)Math.Floor(laneFloat);
+
+      int newLane = (timeline.Lanes - 1) - laneIndex;
+      newLane = Math.Clamp(newLane, 0, timeline.Lanes - 1);
+
+      draggedNote.Lane = newLane;
+      Canvas.SetTop(draggedNoteRect, LaneToY(newLane, LanePixelHeight));
+
+      UpdateMinimapViewport();
+    }
+    private void Note_MouseUp(object sender, MouseButtonEventArgs e) {
+      if(draggedNoteRect == null || draggedNote == null) return;
+
+      draggedNoteRect.ReleaseMouseCapture();
+
+      // Try to snap the note into safe space
+      bool ok = TrySnapNoteToTimeline(draggedNote);
+      if(!ok) {
+        draggedNote.Start = original.Start;
+        draggedNote.Lane = original.Lane;
+      }
+
+      draggedNoteRect = null;
+      draggedNote = null;
+      original = null;
+
+      DrawNotes();
+      DrawMinimap();
+    }
+    private void NotesCanvas_MouseMove(object sender, MouseEventArgs e) {
+      var pos = e.GetPosition(NotesCanvas);
+      hoveredNote = GetNoteAtPosition(pos);
+
+      if(hoveredNote == null) {
+        ClearSplitPreview();
+        NotesCanvas.Cursor = Cursors.Arrow;
+        return;
+      }
+
+      NotesCanvas.Cursor = Cursors.SizeNS;
+      double time = pos.X / PixelsPerSecond;
+
+      splitPreviewTime = Math.Clamp(
+          time,
+          hoveredNote.Start + 0.001,
+          hoveredNote.Start + hoveredNote.Duration - 0.001
+      );
+
+      DrawSplitPreviewLine(hoveredNote, splitPreviewTime);
+    }
+    private void DrawSplitPreviewLine(Note note, double splitTime) {
+      ClearSplitPreview();
+
+      double x = splitTime * PixelsPerSecond;
+      double yTop = (timeline.Lanes - 1 - note.Lane) * LanePixelHeight;
+      double yBottom = yTop + LanePixelHeight;
+
+      splitPreviewLine = new Line {
+        X1 = x,
+        X2 = x,
+        Y1 = yTop,
+        Y2 = yBottom,
+        Stroke = Brushes.Red,
+        StrokeThickness = 2,
+        IsHitTestVisible = false
+      };
+
+      NotesCanvas.Children.Add(splitPreviewLine);
+    }
+    private void ClearSplitPreview() {
+      if(splitPreviewLine != null) {
+        NotesCanvas.Children.Remove(splitPreviewLine);
+        splitPreviewLine = null;
+      }
+    }
+    private void SplitNote(Note note, double splitTime) {
+      double leftDuration = splitTime - note.Start;
+      double rightDuration = note.Duration - leftDuration;
+
+      var leftNote = new Note {
+        Start = note.Start,
+        Duration = leftDuration,
+        Lane = note.Lane,
+      };
+
+      var rightNote = new Note {
+        Start = splitTime,
+        Duration = rightDuration,
+        Lane = note.Lane,
+      };
+
+      timeline.Notes.Remove(note);
+      timeline.Notes.Add(leftNote);
+      timeline.Notes.Add(rightNote);
+
+      timeline.Notes = timeline.Notes
+          .OrderBy(n => n.Start)
+          .ToList();
+
+      DrawNotes();
+      DrawMinimap();
+    }
+    private Note? GetNoteAtPosition(Point pos) {
+      var (time, lane) = MouseToTimeline(pos);
+
+      const double TimeTolerancePixels = 5;
+      double timeTol = TimeTolerancePixels / PixelsPerSecond;
+
+      return timeline.Notes
+          .Where(n => n.Lane == lane)
+          .FirstOrDefault(n =>
+              time >= n.Start - timeTol &&
+              time <= n.Start + n.Duration + timeTol
+          );
+    }
+    private (double time, int lane) MouseToTimeline(Point pos) {
+      double time = pos.X / PixelsPerSecond;
+      int lane = timeline.Lanes - 1 - (int)(pos.Y / LanePixelHeight);
+      return (time, lane);
+    }
+
     private void LoadAudio(string path) {
       SetupTimelineForAudio();
 
@@ -93,6 +274,20 @@ namespace TimelineEditor {
 
       GenerateButton.IsEnabled = true;
       UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
+    }
+    private void SaveTimeline() {
+      if(timeline.Notes.Count == 0) {
+        MessageBox.Show("No notes to save.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        return;
+      }
+      SaveFileDialog dlg = new() {
+        Filter = "JSON Files (*.json)|*.json"
+      };
+      if(dlg.ShowDialog() == true) {
+        string json = JsonSerializer.Serialize(timeline, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(dlg.FileName, json);
+        UpdateStatusBox($"Saved timeline to: {System.IO.Path.GetFileName(dlg.FileName)}");
+      }
     }
 
     #region Config Handler
@@ -299,6 +494,8 @@ namespace TimelineEditor {
         NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(dlg.FileName)}";
         timeline = loaded;
 
+        LaneCountTextBlock.Text = $"{timeline.Lanes}";
+
         UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
         DrawTimelineAndMinimap();
       }
@@ -322,9 +519,7 @@ namespace TimelineEditor {
       NotesCanvas.Children.Clear();
       PitchCanvas.Children.Clear();
 
-      timeline = new() {
-        Lanes = 4
-      };
+      timeline = new();
 
       NoteFileLabel.Text = "Note File: (none)";
 
@@ -385,6 +580,8 @@ namespace TimelineEditor {
       }
 
       timeline = loaded;
+      LaneCountTextBlock.Text = $"{timeline.Lanes}";
+
       UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
       DrawTimelineAndMinimap();
     }
@@ -400,7 +597,7 @@ namespace TimelineEditor {
     private void CreatePlayHead() {
       PlayheadCanvas.Children.Clear();
 
-      var playheadLine = new Line {
+      playheadLine = new Line {
         Stroke = Brushes.Red,
         StrokeThickness = 2,
         Y1 = 0,
@@ -463,10 +660,7 @@ namespace TimelineEditor {
       if(timelineLengthSeconds <= 0) timelineLengthSeconds = 10;
 
       double width = timelineLengthSeconds * PixelsPerSecond;
-      double height = TimelineScrollViewer.ActualHeight;
-
       PitchCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
-      PitchCanvas.Height = NotesCanvas.Height = PlayheadCanvas.Height = height;
 
       playheadTimer = new DispatcherTimer {
         Interval = TimeSpan.FromMilliseconds(16) // ~60 FPS
@@ -504,22 +698,31 @@ namespace TimelineEditor {
     }
     private void DrawNotes() {
       if(timeline.Notes.Count == 0) return;
+
       NotesCanvas.Children.Clear();
 
-      double laneHeight = NotesCanvas.Height / Math.Max(1, timeline.Lanes);
+      var fillBrush = Brushes.Cyan;
+      var strokeBrush = DarkenBrush((SolidColorBrush)fillBrush, 0.6);
 
       foreach(var note in timeline.Notes) {
         Rectangle rect = new() {
           Width = Math.Max(1, note.Duration * PixelsPerSecond),
-          Height = laneHeight - 1,
-          Fill = Brushes.Cyan,
-          Opacity = 0.8,
-          Tag = "note",
-          IsHitTestVisible = false
+          Height = LanePixelHeight,
+          Fill = fillBrush,
+          Opacity = 0.55,
+          Tag = note,
+          IsHitTestVisible = true,
+          Stroke = strokeBrush,
+          StrokeThickness = 1,
         };
 
         Canvas.SetLeft(rect, note.Start * PixelsPerSecond);
-        Canvas.SetTop(rect, (timeline.Lanes / 2 - note.Lane) * laneHeight);
+        Canvas.SetTop(rect, LaneToY(note.Lane, LanePixelHeight));
+
+        rect.MouseRightButtonUp += (_, __) => RemoveNoteFromTimeline(note);
+        rect.MouseLeftButtonDown += Note_MouseDown;
+        rect.MouseMove += Note_MouseMove;
+        rect.MouseLeftButtonUp += Note_MouseUp;
 
         NotesCanvas.Children.Add(rect);
       }
@@ -531,7 +734,6 @@ namespace TimelineEditor {
       PathFigure? figure = null;
 
       if(timeline.PitchSamples.Count == 0) return;
-      PitchCanvas.Children.Clear();
 
       float viewStart = (float)(TimelineScrollViewer.HorizontalOffset / PixelsPerSecond);
       float viewEnd = (float)((TimelineScrollViewer.HorizontalOffset + TimelineScrollViewer.ViewportWidth) / PixelsPerSecond);
@@ -607,12 +809,17 @@ namespace TimelineEditor {
     private static double TimeToX(double timeSeconds) {
       return timeSeconds * PixelsPerSecond;
     }
+    private double LaneToY(int lane, double laneHeight) {
+      int laneIndex = (timeline.Lanes - 1) - lane;
+      laneIndex = Math.Clamp(laneIndex, 0, timeline.Lanes - 1);
+      return laneIndex * laneHeight;
+    }
     private double MidiToY(double midi) {
       double minMidi = FrequencyToMidi(double.Parse(MinFrequencyBox.Text));
       double maxMidi = FrequencyToMidi(double.Parse(MaxFrequencyBox.Text));
       double pitchHeightFraction = 0.5;
-      double pitchHeight = PitchCanvas.Height * pitchHeightFraction;
-      double topOffset = PitchCanvas.Height * (1 - pitchHeightFraction);
+      double pitchHeight = PitchCanvas.ActualHeight * pitchHeightFraction;
+      double topOffset = PitchCanvas.ActualHeight * (1 - pitchHeightFraction);
       double normalized = (midi - minMidi) / (maxMidi - minMidi);
       normalized = Math.Clamp(normalized, 0, 1);
       return topOffset + (1 - normalized) * pitchHeight;
@@ -632,32 +839,32 @@ namespace TimelineEditor {
       DrawMinimap();
     }
     private void DrawMinimap() {
+      if(MinimapCanvas.ActualHeight <= 0 || MinimapCanvas.ActualWidth <= 0)
+        return;
+
       MinimapCanvas.Children.Clear();
 
       double minimapWidth = MinimapCanvas.ActualWidth;
       double minimapHeight = MinimapCanvas.ActualHeight;
-      if(minimapWidth > 0 && minimapHeight > 0) {
-        int lanes = Math.Max(1, timeline.Lanes);
-        double laneHeight = minimapHeight / lanes;
-        double scaleX = minimapWidth / timeline.Length;
 
-        // Draw notes in minimap
-        foreach(var note in timeline.Notes) {
-          Rectangle rect = new() {
-            Width = Math.Max(1, note.Duration * scaleX),
-            Height = laneHeight - 1,
-            Fill = Brushes.Cyan,
-            IsHitTestVisible = false
-          };
+      double scaleX = minimapWidth / timeline.Length;
+      double minimapLaneHeight = minimapHeight / timeline.Lanes;
 
-          Canvas.SetLeft(rect, note.Start * scaleX);
-          Canvas.SetTop(rect, (lanes / 2 - note.Lane) * laneHeight);
-          MinimapCanvas.Children.Add(rect);
-        }
+      foreach(var note in timeline.Notes) {
+        Rectangle rect = new() {
+          Width = Math.Max(1, note.Duration * scaleX),
+          Height = minimapLaneHeight,
+          Fill = Brushes.Cyan,
+          IsHitTestVisible = false
+        };
+
+        Canvas.SetLeft(rect, note.Start * scaleX);
+        Canvas.SetTop(rect, LaneToY(note.Lane, minimapLaneHeight));
+
+        MinimapCanvas.Children.Add(rect);
       }
 
       InitMinimapViewport();
-
       Canvas.SetZIndex(minimapViewport, 100);
       UpdateMinimapViewport();
     }
@@ -689,6 +896,100 @@ namespace TimelineEditor {
       double x = e.GetPosition(MinimapCanvas).X;
       JumpToMinimapPosition(x);
     }
+    private void RemoveNoteFromTimeline(Note clickedNote) {
+      timeline.Notes.Remove(clickedNote);
+      DrawNotes();
+      DrawMinimap();
+      UpdateStatusBox($"Removed note at {clickedNote.Start:F2}s, lane {clickedNote.Lane}");
+    }
+    private bool IsOverlapping(Note note, double startTime) {
+      double duration = note.Duration;
+      int lane = note.Lane;
+
+      return timeline.Notes.Any(n =>
+          n != note &&
+          n.Start < startTime + duration &&
+          n.Start + n.Duration > startTime
+      );
+    }
+    private bool TrySnapNoteToTimeline(Note anchorNote) {
+      if(timeline == null) return false;
+
+      double duration = anchorNote.Duration;
+      double timelineEnd = timeline.Length;
+
+      // Get all notes except the anchor (all lanes)
+      var otherNotes = timeline.Notes
+          .Where(n => n != anchorNote)
+          .OrderBy(n => n.Start)
+          .ToList();
+
+      foreach(var n in otherNotes) {
+        // Check for collision
+        if(n.Start < anchorNote.Start + duration && n.Start + n.Duration > anchorNote.Start) {
+          // Decide which side to move the colliding note based on drop position
+          double anchorCenter = anchorNote.Start + duration / 2;
+          double colliderCenter = n.Start + n.Duration / 2;
+
+          bool shifted = false;
+
+          if(anchorCenter < colliderCenter) {
+            // Dropped on left half → move collider right
+            double newStart = anchorNote.Start + duration;
+            if(newStart + n.Duration <= timelineEnd && !IsOverlapping(n, newStart)) {
+              n.Start = newStart;
+              shifted = true;
+            }
+          } else {
+            // Dropped on right half → move collider left
+            double newStart = anchorNote.Start - n.Duration;
+            if(newStart >= 0 && !IsOverlapping(n, newStart)) {
+              n.Start = newStart;
+              shifted = true;
+            }
+          }
+
+          if(!shifted) {
+            // Cannot move collider → fail placement
+            return false;
+          }
+        }
+      }
+
+      // Sort notes and redraw
+      timeline.Notes = [.. timeline.Notes.OrderBy(n => n.Start)];
+
+      DrawNotes();
+      DrawMinimap();
+      return true;
+    }
+    private void Timeline_MouseUp(object sender, MouseButtonEventArgs e) {
+      if(e.ChangedButton == MouseButton.Middle) {
+        if(timeline == null) return;
+
+        int lane = timeline.Lanes - 1 - (int)(e.GetPosition(NotesCanvas).Y / LanePixelHeight);
+        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
+
+        if(lane < 0 || lane >= timeline.Lanes) return;
+        if(time < 0 || time > timeline.Length) return;
+
+        Note newNote = new() {
+          Lane = lane,
+          Start = time,
+          Duration = 0.5 // default, can adjust later
+        };
+
+        // Snap to safe space (push other notes if needed)
+        bool placed = TrySnapNoteToTimeline(newNote);
+        if(!placed) {
+          UpdateStatusBox("Cannot place note: no free space.");
+        } else {
+          timeline.Notes.Add(newNote);
+          DrawNotes();
+          DrawMinimap();
+        }
+      }
+    }
     public void Minimap_MouseMove(object sender, MouseEventArgs e) {
       if(!isDraggingMinimap) return;
 
@@ -712,6 +1013,15 @@ namespace TimelineEditor {
       UpdateMinimapViewport(); // only move the viewport rectangle
     }
     #endregion
+
+    private static SolidColorBrush DarkenBrush(SolidColorBrush brush, double factor) {
+      var c = brush.Color;
+      return new SolidColorBrush(Color.FromRgb(
+          (byte)(c.R * factor),
+          (byte)(c.G * factor),
+          (byte)(c.B * factor)
+      ));
+    }
 
     #region Status Box Helpers
     private void UpdateStatusBox(string message, bool overwrite = false) {
