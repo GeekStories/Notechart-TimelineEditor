@@ -7,131 +7,145 @@
 		mc:Ignorable="d"
         Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
-		<ToolBar DockPanel.Dock="Top">
+		<ToolBar DockPanel.Dock="Top" VerticalAlignment="Center">
 			<Button x:Name="OpenFileButton" Content="Open" Click="Browse_Click"/>
 			<Button x:Name="ImportFileButton" Content="Import" Click="Import_Click"/>
 			<Button x:Name="OpenSettingsWindowButton" Content="Settings" Click="OpenSettings_Click"/>
 			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
 			<ComboBox x:Name="ConfigSelector" Width="160" Text="No configs found" SelectionChanged="ConfigSelector_SelectionChanged" Margin="10,0,1,0" />
+			<TextBlock x:Name="NoteFileLabel" Text="Note File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+			<TextBlock Text="||" VerticalAlignment="Center" Margin="10,0,10,0" />
+			<TextBlock x:Name="AudioFileLabel" Text="Audio File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
 		</ToolBar>
 		<!-- Generator Settings -->
 		<Grid Margin="10" Width="250">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
-				<RowDefinition Height="*"/>
-				<RowDefinition Height="Auto" />
+				<!-- Clear -->
 				<RowDefinition Height="Auto"/>
+				<!-- Generator settings -->
+				<RowDefinition Height="*" />
+				<!-- OUTPUT (fills remaining space) -->
 				<RowDefinition Height="Auto"/>
+				<!-- Divider -->
 				<RowDefinition Height="Auto"/>
+				<!-- Play buttons -->
 			</Grid.RowDefinitions>
 
-			<StackPanel Grid.Row="0">
-				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,0" Stretch="Fill" X1="1" />
+			<StackPanel Grid.Row="0" Orientation="Vertical">
+				<Line Stroke="Gray" StrokeThickness="2" Margin="0,0,0,5" Stretch="Fill" X1="1" />
+				<Button x:Name="ClearAllButton" Content="Clear Timelines" Click="ClearProject_Click"/>
 			</StackPanel>
 
-			<Button x:Name="ClearAllButton" Content="Clear Timeline" Click="ClearProject_Click"/>
+			<ScrollViewer Grid.Row="1"
+              VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled">
+				<StackPanel>
+					<TextBlock Text="Generator Settings" FontWeight="Bold" Margin="0,5"/>
 
+					<!-- ANALYSIS -->
+					<TextBlock Text="Analysis" FontWeight="SemiBold" Margin="0,5"/>
 
-			<StackPanel Grid.Row="1">
-				<Line Stroke="Gray" StrokeThickness="1" Margin="0,5"/>
-				<TextBlock Text="Generator Settings" FontWeight="Bold" Margin="0,5"/>
-				
-				<!-- ANALYSIS -->
-				<TextBlock Text="Analysis" FontWeight="SemiBold" Margin="0,5"/>
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Min Freq. (Hz)" Width="120"/>
+						<TextBox x:Name="MinFrequencyBox" Width="80" Text="70"/>
+					</StackPanel>
 
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Min Freq. (Hz)" Width="120"/>
-					<TextBox x:Name="MinFrequencyBox" Width="80" Text="70"/>
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Max Freq. (Hz)" Width="120"/>
+						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="1100"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Window Size" Width="120"/>
+						<TextBox x:Name="WindowSizeBox" Width="80" Text="2048"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Hop Size" Width="120"/>
+						<TextBox x:Name="HopSizeBox" Width="80" Text="512"/>
+					</StackPanel>
+
+					<!-- STABILITY -->
+					<TextBlock Text="Stability" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Smooth Frames" Width="120"/>
+						<TextBox x:Name="SmoothFramesBox" Width="80" Text="5"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Stability Frames" Width="120"/>
+						<TextBox x:Name="StabilityFramesBox" Width="80" Text="6"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Hold Tolerance" Width="120"/>
+						<TextBox x:Name="HoldToleranceBox" Width="80" Text="0.75"/>
+					</StackPanel>
+
+					<!-- NOTES -->
+					<TextBlock Text="Notes" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Merge Gap" Width="120"/>
+						<TextBox x:Name="MergeGapBox" Width="80" Text="0.12"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Min Duration" Width="120"/>
+						<TextBox x:Name="MinNoteDurationBox" Width="80" Text="0.1"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Merge Tolerance" Width="120"/>
+						<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="0.5"/>
+					</StackPanel>
+
+					<!--- PHRASES -->
+					<TextBlock Text="Phrases" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Phrase Gap" Width="120"/>
+						<TextBox x:Name="PhraseGapBox" Width="80" Text="0.45"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Pitch Tolerance" Width="120"/>
+						<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="0.45"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Stretch Factor" Width="120"/>
+						<TextBox x:Name="StretchFactorBox" Width="80" Text="1.25"/>
+					</StackPanel>
+
+					<!-- Merge Gap -->
+					<TextBlock Text="Merge Gap" FontWeight="SemiBold" Margin="0,10,0,5"/>
+
+					<StackPanel Orientation="Horizontal">
+						<TextBlock Text="Final Merge Gap" Width="120"/>
+						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
+					</StackPanel>
+
+					<StackPanel Orientation="Horizontal" Width="250">
+						<UniformGrid Columns="3" Margin="0,10,0,5" HorizontalAlignment="Center" Width="250">
+							<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" />
+							<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" Margin="5,0,5,0" />
+							<Button Content="Delete" Click="DeleteCurrentConfig_Click" />
+						</UniformGrid>
+					</StackPanel>
 				</StackPanel>
+			</ScrollViewer>
 
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Max Freq. (Hz)" Width="120"/>
-					<TextBox x:Name="MaxFrequencyBox" Width="80" Text="1100"/>
-				</StackPanel>
-
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Window Size" Width="120"/>
-					<TextBox x:Name="WindowSizeBox" Width="80" Text="2048"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Hop Size" Width="120"/>
-					<TextBox x:Name="HopSizeBox" Width="80" Text="512"/>
-				</StackPanel>
-
-				<!-- STABILITY -->
-				<TextBlock Text="Stability" FontWeight="SemiBold" Margin="0,10,0,5"/>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Smooth Frames" Width="120"/>
-					<TextBox x:Name="SmoothFramesBox" Width="80" Text="5"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Stability Frames" Width="120"/>
-					<TextBox x:Name="StabilityFramesBox" Width="80" Text="6"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Hold Tolerance" Width="120"/>
-					<TextBox x:Name="HoldToleranceBox" Width="80" Text="0.75"/>
-				</StackPanel>
-
-				<!-- NOTES -->
-				<TextBlock Text="Notes" FontWeight="SemiBold" Margin="0,10,0,5"/>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Merge Gap" Width="120"/>
-					<TextBox x:Name="MergeGapBox" Width="80" Text="0.12"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Min Duration" Width="120"/>
-					<TextBox x:Name="MinNoteDurationBox" Width="80" Text="0.1"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Merge Tolerance" Width="120"/>
-					<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="0.5"/>
-				</StackPanel>
-
-				<!--- PHRASES -->
-				<TextBlock Text="Phrases" FontWeight="SemiBold" Margin="0,10,0,5"/>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Phrase Gap" Width="120"/>
-					<TextBox x:Name="PhraseGapBox" Width="80" Text="0.45"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Pitch Tolerance" Width="120"/>
-					<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="0.45"/>
-				</StackPanel>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Stretch Factor" Width="120"/>
-					<TextBox x:Name="StretchFactorBox" Width="80" Text="1.25"/>
-				</StackPanel>
-
-				<!-- Merge Gap -->
-				<TextBlock Text="Merge Gap" FontWeight="SemiBold" Margin="0,10,0,5"/>
-
-				<StackPanel Orientation="Horizontal">
-					<TextBlock Text="Final Merge Gap" Width="120"/>
-					<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
-				</StackPanel>
-				
-				<StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Center">
-					<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" Margin="0,0,5,0" />
-					<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" />
-				</StackPanel>
-			</StackPanel>
-
-			<!-- Status -->
-			<StackPanel Grid.Row="2" VerticalAlignment="Bottom">
-				<ScrollViewer x:Name="OutputScrollView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-					<TextBlock x:Name="StatusTextBlock" Text="" Margin="0,10,0,10" FontSize="8" VerticalAlignment="Bottom" />
+			<!-- Output Panel -->
+			<StackPanel Grid.Row="2" VerticalAlignment="Bottom" Background="#FFEAEAEA">
+				<ScrollViewer x:Name="OutputScrollView"
+                VerticalScrollBarVisibility="Auto"
+                HorizontalScrollBarVisibility="Auto">
+					<TextBlock x:Name="StatusTextBlock"
+					FontSize="8"
+					TextWrapping="Wrap"/>
 				</ScrollViewer>
 			</StackPanel>
 
@@ -168,7 +182,6 @@
 			<Grid x:Name="TimelineGrid" Background="#111">
 				<!-- Layer 0: Pitch Graph -->
 				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False"/>
-
 				<!-- Layer 1: Notes -->
 				<Canvas x:Name="NotesCanvas" Background="Transparent"/>
 				<!-- Layer 2: Playhead -->

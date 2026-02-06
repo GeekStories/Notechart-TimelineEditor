@@ -16,33 +16,38 @@ namespace TimelineEditor {
   /// Interaction logic for MainWindow.xaml
   /// </summary>
   public partial class MainWindow : Window {
+    
+    // State
     private string audioPath;
-    private string jsonPath;
     private Timeline timeline;
-    private CancellationTokenSource? pitchCts;
+    private Dictionary<string, GeneratorSettings> configs;
 
+    // Services
+    private readonly NotechartGenerator _generator = new();
     private SettingsWindow SettingsWindow = new();
 
-    // For minimap interaction
+    private const double PixelsPerSecond = 300;
+
+    // Minimap
     private Rectangle? minimapViewport;
     private bool isDraggingMinimap = false;
 
+    // Audio playback
     private WaveOutEvent? output;
     private AudioFileReader? audio;
     private DispatcherTimer? playheadTimer;
 
     private Line? playheadLine;
-
-    private Dictionary<string, GeneratorSettings> configs;
-    private GeneratorSettings CurrentConfig => configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) ? cfg : new GeneratorSettings();
-
-    string configFolder => Properties.Settings.Default.ConfigFolder;
+    private GeneratorSettings? CurrentConfig => 
+      configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) 
+      ? cfg 
+      : null;
+    private static string ConfigFolder => Properties.Settings.Default.ConfigFolder;
 
     public MainWindow() {
       InitializeComponent();
 
       audioPath = string.Empty;
-      jsonPath = string.Empty;
       timeline = new();
 
       output = null;
@@ -76,7 +81,7 @@ namespace TimelineEditor {
     private void SaveGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveCurrentConfig();
     private void SaveNewGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveNewConfig();
     private void ConfigSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => SelectConfig();
-    
+    private void DeleteCurrentConfig_Click(object sender, RoutedEventArgs e) => DeleteCurrentConfig();
     private void LoadAudio(string path) {
       SetupTimelineForAudio();
 
@@ -84,21 +89,23 @@ namespace TimelineEditor {
       output = new WaveOutEvent();
       output.Init(audio);
 
+      AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(path)}";
+
       GenerateButton.IsEnabled = true;
       UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
     }
 
     #region Config Handler
     public void LoadConfigs() {
-      UpdateStatusBox($"Loading configurations: {configFolder}");
+      UpdateStatusBox($"Loading configurations: {ConfigFolder}");
 
       ConfigSelector.ItemsSource = null;
 
-      if(string.IsNullOrWhiteSpace(configFolder) || !Directory.Exists(configFolder))
+      if(string.IsNullOrWhiteSpace(ConfigFolder) || !Directory.Exists(ConfigFolder))
         return;
 
       List<ComboBoxItem> items = new();
-      foreach(string path in Directory.GetFiles(configFolder, "*.json")) {
+      foreach(string path in Directory.GetFiles(ConfigFolder, "*.json")) {
         try {
           string? json = File.ReadAllText(path);
           if(json == null) {
@@ -121,8 +128,6 @@ namespace TimelineEditor {
 
           items.Add(item);
           configs[config.Profile] = config;
-          UpdateStatusBox("Loaded Profile: " + config.Profile);
-
         } catch(Exception ex) {
           UpdateStatusBox("Error loading config: " + ex.Message);
           Debug.WriteLine(ex);
@@ -135,7 +140,7 @@ namespace TimelineEditor {
 
       if(lastFile != "") {
         UpdateStatusBox($"Found last used config: {lastFile}.json");
-        LoadConfig(Properties.Settings.Default.LastConfigFile);
+        // LoadConfig(Properties.Settings.Default.LastConfigFile);
         ConfigSelector.SelectedIndex = items.FindIndex(item => (string)item.Content == lastFile);
       } else if(items?.Count == 1) {
         ConfigSelector.SelectedIndex = 0;
@@ -187,12 +192,12 @@ namespace TimelineEditor {
 
       try {
         string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-        if(string.IsNullOrWhiteSpace(configFolder) || !Directory.Exists(configFolder)) {
+        if(string.IsNullOrWhiteSpace(ConfigFolder) || !Directory.Exists(ConfigFolder)) {
           MessageBox.Show("Config folder is not set or does not exist. Please set it in the settings.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
           return;
         }
 
-        string filePath = System.IO.Path.Combine(configFolder, $"{config.Profile}.json");
+        string filePath = System.IO.Path.Combine(ConfigFolder, $"{config.Profile}.json");
         File.WriteAllText(filePath, json);
         UpdateStatusBox($"Configuration updated: {config.Profile}.json");
         LoadConfigs(); // Refresh the list
@@ -201,6 +206,11 @@ namespace TimelineEditor {
       }
     }
     private void SaveCurrentConfig() {
+      if(CurrentConfig == null) {
+        UpdateStatusBox("No configuration selected to save.");
+        return;
+      }
+
       SaveConfig(CurrentConfig.Profile);
     }
     private void SaveNewConfig() {
@@ -231,6 +241,44 @@ namespace TimelineEditor {
 
       SaveConfig(name);
     }
+    private void DeleteCurrentConfig() {
+      if(CurrentConfig == null) {
+        UpdateStatusBox("No configuration selected to delete.");
+        return;
+      }
+
+      string profile = CurrentConfig.Profile.ToLower();
+
+      if(string.IsNullOrEmpty(profile)) {
+        MessageBox.Show("No configuration selected.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        return;
+      } else if(profile == "default") {
+        MessageBox.Show("Cannot delete the default configuration.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        return;
+      }
+
+      MessageBoxResult result = MessageBox.Show(
+        $"Are you sure you want to delete the configuration '{profile}'?",
+        "Confirm Deletion",
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Warning
+      );
+
+      if(result == MessageBoxResult.Yes) {
+        try {
+          string filePath = System.IO.Path.Combine(ConfigFolder, $"{profile}.json");
+          if(File.Exists(filePath)) {
+            File.Delete(filePath);
+            UpdateStatusBox($"Deleted configuration: {profile}.json");
+            LoadConfigs();
+          } else {
+            MessageBox.Show("Configuration file not found.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+          }
+        } catch(Exception ex) {
+          MessageBox.Show($"Error deleting configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+      }
+    }
     #endregion
 
     #region ButtonHandlers
@@ -242,16 +290,17 @@ namespace TimelineEditor {
       if(dlg.ShowDialog() == true) {
         string json = File.ReadAllText(dlg.FileName);
         Timeline? loaded = JsonSerializer.Deserialize<Timeline>(json);
+
         if(loaded == null) {
           MessageBox.Show("Failed to load timeline from the selected file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
           return;
         }
 
+        NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(dlg.FileName)}";
         timeline = loaded;
+
         UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
         DrawTimelineAndMinimap();
-
-        GenerateButton.IsEnabled = true;
       }
     }
     private void BrowseAudio() {
@@ -260,6 +309,8 @@ namespace TimelineEditor {
       };
 
       if(dlg.ShowDialog() == true) {
+        // ClearTimeline();
+
         audioPath = dlg.FileName;
         LoadAudio(audioPath);
       }
@@ -267,21 +318,18 @@ namespace TimelineEditor {
     private void ClearTimeline() {
       Stop();
 
-      pitchCts?.Cancel();
-      pitchCts = null;
-
-      timeline = new() {
-        Length = 0,
-      };
-
-      PlayheadCanvas.Children.Clear();
       MinimapCanvas.Children.Clear();
       NotesCanvas.Children.Clear();
       PitchCanvas.Children.Clear();
 
-      minimapViewport = null;
+      timeline = new() {
+        Lanes = 4
+      };
 
-      GenerateButton.IsEnabled = true;
+      NoteFileLabel.Text = "Note File: (none)";
+
+      InitMinimapViewport();
+      UpdateMinimapViewport();
 
       UpdatePlayhead(0);
       ClearStatusBox();
@@ -304,99 +352,41 @@ namespace TimelineEditor {
     #region Generate / Run Python
     private async void GenerateNotes() {
       if(string.IsNullOrEmpty(audioPath)) return;
-
-      Stop(); // Kill the audio if playing
-
+      if(CurrentConfig == null) return;
 
       GenerateButton.IsEnabled = false;
-      UpdateStatusBox("Generating chart...");
+      Stop();
 
-      var settings = new GeneratorSettings {
-        MinFreq = double.Parse(MinFrequencyBox.Text),
-        MaxFreq = double.Parse(MaxFrequencyBox.Text),
-        WindowSize = int.Parse(WindowSizeBox.Text),
-        HopSize = int.Parse(HopSizeBox.Text),
-
-        SmoothFrames = int.Parse(SmoothFramesBox.Text),
-        StabilityFrames = int.Parse(StabilityFramesBox.Text),
-        HoldTolerance = double.Parse(HoldToleranceBox.Text),
-
-        MergeGap = double.Parse(MergeGapBox.Text),
-        MinNoteDuration = double.Parse(MinNoteDurationBox.Text),
-        NoteMergeTolerance = double.Parse(NoteMergeToleranceBox.Text),
-
-        PhraseGap = double.Parse(PhraseGapBox.Text),
-        PhrasePitchTolerance = double.Parse(PhrasePitchToleranceBox.Text),
-        StretchFactor = double.Parse(StretchFactorBox.Text),
-
-        FinalMergeGap = double.Parse(FinalMergeGapBox.Text),
-      };
-
-      bool success = await Task.Run(
-        () => RunPythonGenerator(audioPath, settings)
+      var progress = new Progress<string>(msg => UpdateStatusBox(msg));
+      var result = await _generator.GenerateAsync(
+        audioPath,
+        CurrentConfig,
+        progress
       );
 
-      if(success) {
-        UpdateStatusBox($"Created Notes File: {System.IO.Path.GetFileName(jsonPath)}");
-
-        string jsonText = File.ReadAllText(jsonPath);
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-
-        Timeline? loaded = JsonSerializer.Deserialize<Timeline>(jsonText, options);
-        if(loaded == null) {
-          MessageBox.Show("Failed to load timeline.", "Error");
-          return;
-        }
-
-        timeline = loaded;
-        UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
-
-        DrawTimelineAndMinimap();
-      } else {
+      if(!result.Success) {
         UpdateStatusBox("Chart generation failed.");
+        UpdateStatusBox(result.Error ?? "Unknown error");
+        GenerateButton.IsEnabled = true;
+        return;
       }
+
+      LoadTimeline(result.OutputPath!);
+      GenerateButton.IsEnabled = true;
     }
-    private bool RunPythonGenerator(string audioFile, GeneratorSettings settings) {
-      if(string.IsNullOrEmpty(audioFile)) return false;
+    private void LoadTimeline(string jsonPath) {
+      string jsonText = File.ReadAllText(jsonPath);
+      var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-      try {
-        string arguments = BuildGeneratorArguments(audioFile, settings);
-
-        ProcessStartInfo psi = new() {
-          FileName = "notechart",
-          Arguments = arguments,
-          UseShellExecute = false,
-          RedirectStandardOutput = true,
-          RedirectStandardError = true,
-          CreateNoWindow = true
-        };
-
-        UpdateStatusBox("Starting pitch extraction.");
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if(process.ExitCode != 0) {
-          UpdateStatusBox("Generator error:");
-          UpdateStatusBox(stderr);
-          return false;
-        }
-
-        UpdateStatusBox("Pitch extraction finished.");
-
-        jsonPath = System.IO.Path.Combine(
-          System.IO.Path.GetDirectoryName(audioFile)!,
-          System.IO.Path.GetFileNameWithoutExtension(audioFile) + "_chart.json"
-        );
-
-        return File.Exists(jsonPath);
-      } catch(Exception ex) {
-        UpdateStatusBox($"Error: {ex.Message}");
-        return false;
+      var loaded = JsonSerializer.Deserialize<Timeline>(jsonText, options);
+      if(loaded == null) {
+        MessageBox.Show("Failed to load timeline.", "Error");
+        return;
       }
+
+      timeline = loaded;
+      UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
+      DrawTimelineAndMinimap();
     }
     #endregion
 
@@ -425,8 +415,7 @@ namespace TimelineEditor {
       PlayheadCanvas.Children.Add(playheadLine);
     }
     private void UpdatePlayhead(double timeSeconds) {
-      double pixelsPerSecond = 100;
-      double x = timeSeconds * pixelsPerSecond;
+      double x = timeSeconds * PixelsPerSecond;
 
       if(PlayheadCanvas.Children.Count == 0) return;
       if(PlayheadCanvas.Children[0] is Line line) {
@@ -473,8 +462,7 @@ namespace TimelineEditor {
       double timelineLengthSeconds = Math.Max(timeline.Length, timeline.PitchSamples.LastOrDefault()?.Time ?? 0);
       if(timelineLengthSeconds <= 0) timelineLengthSeconds = 10;
 
-      double pixelsPerSecond = 100;
-      double width = timelineLengthSeconds * pixelsPerSecond;
+      double width = timelineLengthSeconds * PixelsPerSecond;
       double height = TimelineScrollViewer.ActualHeight;
 
       PitchCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
@@ -488,9 +476,7 @@ namespace TimelineEditor {
         UpdatePlayhead(audio.CurrentTime.TotalSeconds);
       };
 
-      // Clear previous drawings
-      PitchCanvas.Children.Clear();
-      NotesCanvas.Children.Clear();
+      UpdateMinimapViewport();
     }
     private void InitMinimapViewport() {
       minimapViewport = new Rectangle {
@@ -517,37 +503,38 @@ namespace TimelineEditor {
       Canvas.SetTop(minimapViewport, 0);
     }
     private void DrawNotes() {
-      double pixelsPerSecond = 100;
       if(timeline.Notes.Count == 0) return;
+      NotesCanvas.Children.Clear();
 
       double laneHeight = NotesCanvas.Height / Math.Max(1, timeline.Lanes);
 
       foreach(var note in timeline.Notes) {
-        Rectangle rect = new Rectangle {
-          Width = Math.Max(1, note.Duration * pixelsPerSecond),
+        Rectangle rect = new() {
+          Width = Math.Max(1, note.Duration * PixelsPerSecond),
           Height = laneHeight - 1,
           Fill = Brushes.Cyan,
+          Opacity = 0.8,
           Tag = "note",
           IsHitTestVisible = false
         };
 
-        Canvas.SetLeft(rect, note.Start * pixelsPerSecond);
+        Canvas.SetLeft(rect, note.Start * PixelsPerSecond);
         Canvas.SetTop(rect, (timeline.Lanes / 2 - note.Lane) * laneHeight);
 
         NotesCanvas.Children.Add(rect);
       }
     }
     private void DrawPitchGraph() {
+      PitchCanvas.Children.Clear();
+
+      var geometry = new PathGeometry();
+      PathFigure? figure = null;
+
       if(timeline.PitchSamples.Count == 0) return;
       PitchCanvas.Children.Clear();
 
-
-      const double MaxTimeGap = 0.03;   // 30 ms
-      const double MaxMidiJump = 0.75;  // semitones
-
-      double pixelsPerSecond = 100;
-      float viewStart = (float)(TimelineScrollViewer.HorizontalOffset / pixelsPerSecond);
-      float viewEnd = (float)((TimelineScrollViewer.HorizontalOffset + TimelineScrollViewer.ViewportWidth) / pixelsPerSecond);
+      float viewStart = (float)(TimelineScrollViewer.HorizontalOffset / PixelsPerSecond);
+      float viewEnd = (float)((TimelineScrollViewer.HorizontalOffset + TimelineScrollViewer.ViewportWidth) / PixelsPerSecond);
 
       PitchSample? prev = null;
 
@@ -555,40 +542,70 @@ namespace TimelineEditor {
         if(p.Time < viewStart || p.Time > viewEnd || p.Midi <= 0)
           continue;
 
-        if(prev != null) {
-          double dt = p.Time - prev.Time;
-          double dm = Math.Abs(p.Midi - prev.Midi);
-
-          if(dt <= MaxTimeGap && dm <= MaxMidiJump) {
-            DrawLine(
-                TimeToX(prev.Time),
-                MidiToY(prev.Midi),
-                TimeToX(p.Time),
-                MidiToY(p.Midi)
-            );
-          }
+        if(prev == null || !IsContinuous(prev, p)) {
+          figure = new PathFigure {
+            StartPoint = new Point(TimeToX(p.Time), MidiToY(p.Midi)),
+            IsFilled = false,
+            IsClosed = false
+          };
+          geometry.Figures.Add(figure);
+        } else {
+          figure!.Segments.Add(
+              new LineSegment(
+                  new Point(TimeToX(p.Time), MidiToY(p.Midi)),
+                  true
+              )
+          );
         }
 
         prev = p;
       }
-    }
-    private void DrawLine(double x1, double y1, double x2, double y2) {
-      Line line = new() {
-        X1 = x1,
-        Y1 = PitchCanvas.Height,
-        X2 = x2,
-        Y2 = y2,
+
+      PitchCanvas.Children.Add(new System.Windows.Shapes.Path {
+        Data = geometry,
         Stroke = Brushes.Orange,
         StrokeThickness = 2,
-        Opacity = 0.7,
-        Tag = "pitch",
-        IsHitTestVisible = false
-      };
-      PitchCanvas.Children.Add(line);
+        StrokeLineJoin = PenLineJoin.Round,
+        StrokeStartLineCap = PenLineCap.Round,
+        StrokeEndLineCap = PenLineCap.Round
+      });
+    }
+    private static bool IsContinuous(PitchSample prev, PitchSample curr) {
+      if(curr.Midi <= 0 || prev.Midi <= 0)
+        return false;
+
+      double dt = curr.Time - prev.Time;
+      if(dt <= 0)
+        return false;
+
+      double dm = Math.Abs(curr.Midi - prev.Midi);
+
+      const double MaxTimeGap = 0.03;        // seconds
+      const double SoftMidiJump = 0.35;      // semitones
+      const double HardMidiJump = 0.75;      // semitones
+
+      double pitchVelocity = Math.Abs(curr.Midi - prev.Midi) / dt;
+      const double MaxPitchVelocity = 25; // semitones per secon
+
+      if(dt > MaxTimeGap)
+        return false;
+
+      if(pitchVelocity > MaxPitchVelocity)
+        return false;
+
+      // Small jump → always continuous
+      if(dm <= SoftMidiJump)
+        return true;
+
+      // Large jump → always break
+      if(dm >= HardMidiJump)
+        return false;
+
+      // Middle zone: allow if time gap is very small
+      return dt < MaxTimeGap * 0.5;
     }
     private static double TimeToX(double timeSeconds) {
-      double pixelsPerSecond = 100;
-      return timeSeconds * pixelsPerSecond;
+      return timeSeconds * PixelsPerSecond;
     }
     private double MidiToY(double midi) {
       double minMidi = FrequencyToMidi(double.Parse(MinFrequencyBox.Text));
@@ -603,7 +620,6 @@ namespace TimelineEditor {
     private static double FrequencyToMidi(double frequency) {
       return 69 + 12 * Math.Log2(frequency / 440.0);
     }
-
     private void DrawTimelineAndMinimap() {
       SetupTimelineForAudio();  // sets sizes, clears pitch/notes once
 
@@ -745,51 +761,6 @@ namespace TimelineEditor {
     #endregion
 
     #region Extra Classes
-    public class GeneratorSettings {
-      [JsonPropertyName("profile")]
-      public string Profile { get; set; } = "";
-      // Analysis
-      [JsonPropertyName("window_size")]
-      public int WindowSize { get; set; } = 2048;
-      [JsonPropertyName("hop_size")]
-      public int HopSize { get; set; } = 512;
-      [JsonPropertyName("min_freq")]
-      public double MinFreq { get; set; } = 70.0;
-      [JsonPropertyName("max_freq")]
-      public double MaxFreq { get; set; } = 1100.0;
-
-      // Stability
-      [JsonPropertyName("smooth_frames")]
-      public int SmoothFrames { get; set; } = 5;
-      [JsonPropertyName("stability_frames")]
-      public int StabilityFrames { get; set; } = 6;
-      [JsonPropertyName("hold_tolerance")]
-      public double HoldTolerance { get; set; } = 0.75;
-
-      // Notes
-      [JsonPropertyName("min_note_duration")]
-      public double MinNoteDuration { get; set; } = 0.12;
-      [JsonPropertyName("merge_gap")]
-      public double MergeGap { get; set; } = 0.05;
-      [JsonPropertyName("note_merge_tolerance")]
-      public double NoteMergeTolerance { get; set; } = 0.5;
-
-      // Phrases
-      [JsonPropertyName("phrase_gap")]
-      public double PhraseGap { get; set; } = 0.45;
-      [JsonPropertyName("phrase_pitch_tolerance")]
-      public double PhrasePitchTolerance { get; set; } = 1.75;
-      [JsonPropertyName("stretch_factor")]
-      public double StretchFactor { get; set; } = 1.25;
-
-      // Final
-      [JsonPropertyName("final_merge_gap")]
-      public double FinalMergeGap { get; set; } = 0.15;
-
-      // Lanes
-      [JsonPropertyName("lane_range")]
-      public int LaneRange { get; set; } = 4;
-    }
     public class Timeline {
       [JsonPropertyName("name")]
       public string Name { get; set; } = "";
@@ -800,18 +771,11 @@ namespace TimelineEditor {
       [JsonPropertyName("lanes")]
       public int Lanes { get; set; }
 
-      [JsonPropertyName("configs")]
-      public Configs Configs { get; set; } = new();
-
       [JsonPropertyName("notes")]
       public List<Note> Notes { get; set; } = new();
 
       [JsonPropertyName("pitches")]
       public List<PitchSample> PitchSamples { get; set; } = new();
-    }
-    public class Configs {
-      public string? profile { get; set; } = "";
-      public string? song { get; set; } = "";
     }
     public class Note {
       [JsonPropertyName("start")]
