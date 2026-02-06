@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TimelineEditor"
 		mc:Ignorable="d"
-		KeyUp="Window_KeyUp"
+		PreviewKeyDown="Window_KeyUp"
         Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
 		<ToolBar DockPanel.Dock="Top" VerticalAlignment="Center">
@@ -147,9 +147,9 @@
 
 					<StackPanel Orientation="Horizontal" Width="250">
 						<UniformGrid Columns="3" Margin="0,10,0,5" HorizontalAlignment="Center" Width="250">
-							<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" />
-							<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" Margin="5,0,5,0" />
-							<Button Content="Delete" Click="DeleteCurrentConfig_Click" />
+							<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" Focusable="False"/>
+							<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" Margin="5,0,5,0" Focusable="False"/>
+							<Button Content="Delete" Click="DeleteCurrentConfig_Click" Focusable="False"/>
 						</UniformGrid>
 					</StackPanel>
 				</StackPanel>

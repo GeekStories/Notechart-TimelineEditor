@@ -98,6 +98,15 @@ namespace TimelineEditor {
     private void Window_KeyUp(object sender, KeyEventArgs e) {
       if(e.Key == Key.S)
         TrySplitHoveredNote();
+      else if(e.Key == Key.Space) {
+        if(output?.PlaybackState == PlaybackState.Playing)
+          Stop();
+        else
+          Play();
+
+        e.Handled = true; // Stop WPF from sending it to buttons
+      } else if(e.Key == Key.R)
+        Reset();
     }
     private void TrySplitHoveredNote() {
       if(hoveredNote == null) return;
@@ -270,7 +279,7 @@ namespace TimelineEditor {
       output = new WaveOutEvent();
       output.Init(audio);
 
-      AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(path)}";
+      AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(path)} ({audio.TotalTime.Minutes}m {audio.TotalTime.Seconds}s)";
 
       GenerateButton.IsEnabled = true;
       UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
@@ -581,6 +590,7 @@ namespace TimelineEditor {
 
       timeline = loaded;
       LaneCountTextBlock.Text = $"{timeline.Lanes}";
+      NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(jsonPath)}";
 
       UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
       DrawTimelineAndMinimap();
