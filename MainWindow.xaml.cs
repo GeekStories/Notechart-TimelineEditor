@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using NAudio.Wave;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -21,16 +22,20 @@ namespace TimelineEditor {
     private string audioPath;
     private Timeline timeline;
     private Dictionary<string, GeneratorSettings> configs;
-
-    Note? hoveredNote = null;
-    double splitPreviewTime = 0;
-    Line? splitPreviewLine = null;
-
-    // Services
-    private readonly NotechartGenerator _generator = new();
-    private SettingsWindow SettingsWindow = new();
-
+    private Note? hoveredNote = null;
+    private double splitPreviewTime = 0;
+    private Line? splitPreviewLine = null;
+    private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
     private const double PixelsPerSecond = 300;
+    private Line? playheadLine;
+
+    // Dragging state
+    private Rectangle? draggedNoteRect;
+    private Note? draggedNote;
+    private Note? original;
+    private Point dragStartMouse;
+    private double dragStartX;
+    private double dragStartY;
 
     // Minimap
     private Rectangle? minimapViewport;
@@ -41,20 +46,15 @@ namespace TimelineEditor {
     private AudioFileReader? audio;
     private DispatcherTimer? playheadTimer;
 
-    private Rectangle? draggedNoteRect;
-    private Note? draggedNote;
-    private Note? original; // for reverting if placement fails
-    private Point dragStartMouse;
-    private double dragStartX;
-    private double dragStartY;
-    private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
-
-    private Line? playheadLine;
-    private GeneratorSettings? CurrentConfig =>
-      configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg)
-      ? cfg
-      : null;
+    // Config Info
+    private GeneratorSettings? CurrentConfig => configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) ? cfg : null;
     private static string ConfigFolder => Properties.Settings.Default.ConfigFolder;
+
+    // Services
+    private readonly NotechartGenerator _generator = new();
+    private SettingsWindow SettingsWindow = new();
+
+
     public MainWindow() {
       InitializeComponent();
 
@@ -73,13 +73,13 @@ namespace TimelineEditor {
       LoadConfigs();
       ConfigWatcherService.ConfigsChanged += LoadConfigs;
     }
-
     protected override void OnClosed(EventArgs e) {
       ConfigWatcherService.ConfigsChanged -= LoadConfigs;
       Application.Current.Shutdown();
       base.OnClosed(e);
     }
 
+    #region Input Handlers
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
     private void Browse_Click(object sender, RoutedEventArgs e) => BrowseAudio();
     private void ClearProject_Click(object sender, RoutedEventArgs e) => ClearTimeline();
@@ -93,6 +93,9 @@ namespace TimelineEditor {
     private void SaveNewGeneratorSettings_Click(object sender, RoutedEventArgs e) => SaveNewConfig();
     private void ConfigSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => SelectConfig();
     private void DeleteCurrentConfig_Click(object sendNotesCanvas, RoutedEventArgs e) => DeleteCurrentConfig();
+    #endregion
+
+    #region Input Events
     private void Window_KeyUp(object sender, KeyEventArgs e) {
       if(e.Key == Key.S)
         TrySplitHoveredNote();
@@ -106,12 +109,6 @@ namespace TimelineEditor {
       } else if(e.Key == Key.R)
         Reset();
     }
-    private void TrySplitHoveredNote() {
-      if(hoveredNote == null) return;
-      SplitNote(hoveredNote, splitPreviewTime);
-      ClearSplitPreview();
-    }
-
     private void Note_MouseDown(object sender, MouseButtonEventArgs e) {
       if(sender is not Rectangle rect) return;
       if(rect.Tag is not Note note) return;
@@ -199,6 +196,78 @@ namespace TimelineEditor {
 
       DrawSplitPreviewLine(hoveredNote, splitPreviewTime);
     }
+    private void Timeline_MouseUp(object sender, MouseButtonEventArgs e) {
+      if(e.ChangedButton == MouseButton.Left) {
+        if(hoveredNote != null) return; // Don't seek if we were dragging a note
+
+        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
+        if(audio != null) {
+          audio.CurrentTime = TimeSpan.FromSeconds(time);
+          UpdatePlayhead(time);
+        }
+      } else if(e.ChangedButton == MouseButton.Middle) {
+        if(timeline == null) return;
+
+        int lane = timeline.Lanes - 1 - (int)(e.GetPosition(NotesCanvas).Y / LanePixelHeight);
+        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
+
+        if(lane < 0 || lane >= timeline.Lanes) return;
+        if(time < 0 || time > timeline.Length) return;
+
+        Note newNote = new() {
+          Lane = lane,
+          Start = time,
+          Duration = 0.5 // default, can adjust later
+        };
+
+        // Snap to safe space (push other notes if needed)
+        bool placed = TrySnapNoteToTimeline(newNote);
+        if(!placed) {
+          UpdateStatusBox("Cannot place note: no free space.");
+        } else {
+          timeline.Notes.Add(newNote);
+          DrawNotes();
+          DrawMinimap();
+        }
+      }
+    }
+    public void Minimap_MouseMove(object sender, MouseEventArgs e) {
+      if(!isDraggingMinimap) return;
+
+      double x = e.GetPosition(MinimapCanvas).X;
+      JumpToMinimapPosition(x);
+    }
+    public void Minimap_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+      isDraggingMinimap = true;
+      MinimapCanvas.CaptureMouse();
+
+      double x = e.GetPosition(MinimapCanvas).X;
+      JumpToMinimapPosition(x);
+    }
+    public void Minimap_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
+      isDraggingMinimap = false;
+      MinimapCanvas.ReleaseMouseCapture();
+    }
+    public void TimelineScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
+      // Wheel ONLY = horizontal scroll
+      TimelineScrollViewer.ScrollToHorizontalOffset(
+          TimelineScrollViewer.HorizontalOffset - e.Delta
+      );
+
+      e.Handled = true;
+    }
+    public void TimelineScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) {
+      DrawPitchGraph();
+      UpdateMinimapViewport(); // only move the viewport rectangle
+    }
+    #endregion
+
+    #region Note Manipulation
+    private void TrySplitHoveredNote() {
+      if(hoveredNote == null) return;
+      SplitNote(hoveredNote, splitPreviewTime);
+      ClearSplitPreview();
+    }
     private void DrawSplitPreviewLine(Note note, double splitTime) {
       ClearSplitPreview();
 
@@ -264,38 +333,32 @@ namespace TimelineEditor {
               time <= n.Start + n.Duration + timeTol
           );
     }
+    #endregion
+
+    #region Helpers
     private (double time, int lane) MouseToTimeline(Point pos) {
       double time = pos.X / PixelsPerSecond;
       int lane = timeline.Lanes - 1 - (int)(pos.Y / LanePixelHeight);
       return (time, lane);
     }
-
-    private void LoadAudio(string path) {
-      SetupTimelineForAudio();
-
-      audio = new AudioFileReader(path);
-      output = new WaveOutEvent();
-      output.Init(audio);
-
-      AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(path)} ({audio.TotalTime.Minutes}m {audio.TotalTime.Seconds}s)";
-
-      GenerateButton.IsEnabled = true;
-      UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
-    }
-    private void SaveTimeline() {
-      if(timeline.Notes.Count == 0) {
-        MessageBox.Show("No notes to save.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        return;
-      }
-      SaveFileDialog dlg = new() {
-        Filter = "JSON Files (*.json)|*.json"
+    private static SolidColorBrush NoteColor(string type) {
+      return (type) switch {
+        "normal" => Brushes.Cyan,
+        "hold" => Brushes.Magenta,
+        "vibrato" => Brushes.Orange,
+        _ => Brushes.Gray
       };
-      if(dlg.ShowDialog() == true) {
-        string json = JsonSerializer.Serialize(timeline, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(dlg.FileName, json);
-        UpdateStatusBox($"Saved timeline to: {System.IO.Path.GetFileName(dlg.FileName)}");
-      }
+
     }
+    private static SolidColorBrush DarkenBrush(SolidColorBrush brush, double factor) {
+      var c = brush.Color;
+      return new SolidColorBrush(Color.FromRgb(
+          (byte)(c.R * factor),
+          (byte)(c.G * factor),
+          (byte)(c.B * factor)
+      ));
+    }
+    #endregion
 
     #region Config Handler
     public void LoadConfigs() {
@@ -504,7 +567,7 @@ namespace TimelineEditor {
         LaneCountTextBlock.Text = $"{timeline.Lanes}";
 
         UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
-        DrawTimelineAndMinimap();
+        DrawTimeline();
       }
     }
     private void BrowseAudio() {
@@ -513,10 +576,17 @@ namespace TimelineEditor {
       };
 
       if(dlg.ShowDialog() == true) {
-        // ClearTimeline();
-
         audioPath = dlg.FileName;
-        LoadAudio(audioPath);
+
+        SetupTimelineForAudio();
+        audio = new AudioFileReader(audioPath);
+        output = new WaveOutEvent();
+        output.Init(audio);
+
+        AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(audioPath)} ({audio.TotalTime.Minutes}m {audio.TotalTime.Seconds}s)";
+
+        GenerateButton.IsEnabled = true;
+        UpdateStatusBox($"Loaded Audio: {System.IO.Path.GetFileName(audio.FileName)}");
       }
     }
     private void ClearTimeline() {
@@ -547,6 +617,20 @@ namespace TimelineEditor {
     private void SelectConfig() {
       if(ConfigSelector.SelectedItem is ComboBoxItem item && item.Content is string v) {
         LoadConfig(v);
+      }
+    }
+    private void SaveTimeline() {
+      if(timeline.Notes.Count == 0) {
+        MessageBox.Show("No notes to save.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        return;
+      }
+      SaveFileDialog dlg = new() {
+        Filter = "JSON Files (*.json)|*.json"
+      };
+      if(dlg.ShowDialog() == true) {
+        string json = JsonSerializer.Serialize(timeline, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(dlg.FileName, json);
+        UpdateStatusBox($"Saved timeline to: {System.IO.Path.GetFileName(dlg.FileName)}");
       }
     }
     #endregion
@@ -591,7 +675,7 @@ namespace TimelineEditor {
       NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(jsonPath)}";
 
       UpdateStatusBox($"{timeline.Notes.Count} notes loaded onto Timeline.");
-      DrawTimelineAndMinimap();
+      DrawTimeline();
     }
     #endregion
 
@@ -710,13 +794,12 @@ namespace TimelineEditor {
     }
     private void DrawNotes() {
       if(timeline.Notes.Count == 0) return;
-
       NotesCanvas.Children.Clear();
 
-      var fillBrush = Brushes.Cyan;
-      var strokeBrush = DarkenBrush((SolidColorBrush)fillBrush, 0.6);
-
       foreach(var note in timeline.Notes) {
+        SolidColorBrush fillBrush = NoteColor(note.Type);
+        var strokeBrush = DarkenBrush(fillBrush, 0.6);
+
         Rectangle rect = new() {
           Width = Math.Max(1, note.Duration * PixelsPerSecond),
           Height = LanePixelHeight,
@@ -839,7 +922,7 @@ namespace TimelineEditor {
     private static double FrequencyToMidi(double frequency) {
       return 69 + 12 * Math.Log2(frequency / 440.0);
     }
-    private void DrawTimelineAndMinimap() {
+    private void DrawTimeline() {
       SetupTimelineForAudio();  // sets sizes, clears pitch/notes once
 
       DrawPitchGraph();
@@ -863,10 +946,12 @@ namespace TimelineEditor {
       double minimapLaneHeight = minimapHeight / timeline.Lanes;
 
       foreach(var note in timeline.Notes) {
+        SolidColorBrush fillBrush = NoteColor(note.Type);
+
         Rectangle rect = new() {
           Width = Math.Max(1, note.Duration * scaleX),
           Height = minimapLaneHeight,
-          Fill = Brushes.Cyan,
+          Fill = fillBrush,
           IsHitTestVisible = false
         };
 
@@ -890,7 +975,6 @@ namespace TimelineEditor {
       double ratio = mouseX / minimapWidth;
       ratio = Math.Clamp(ratio, 0, 1);
 
-      ///double totalWidth = timeline.Length * 100;
       double totalWidth = NotesCanvas.Width;
       double viewportWidth = TimelineScrollViewer.ViewportWidth;
 
@@ -900,13 +984,6 @@ namespace TimelineEditor {
       TimelineScrollViewer.ScrollToHorizontalOffset(
           Math.Clamp(targetOffset, 0, maxOffset)
       );
-    }
-    public void Minimap_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
-      isDraggingMinimap = true;
-      MinimapCanvas.CaptureMouse();
-
-      double x = e.GetPosition(MinimapCanvas).X;
-      JumpToMinimapPosition(x);
     }
     private void RemoveNoteFromTimeline(Note clickedNote) {
       timeline.Notes.Remove(clickedNote);
@@ -975,73 +1052,7 @@ namespace TimelineEditor {
       DrawMinimap();
       return true;
     }
-    private void Timeline_MouseUp(object sender, MouseButtonEventArgs e) {
-      if(e.ChangedButton == MouseButton.Left) {
-        if(hoveredNote != null) return; // Don't seek if we were dragging a note
-
-        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
-        if(audio != null) {
-          audio.CurrentTime = TimeSpan.FromSeconds(time);
-          UpdatePlayhead(time);
-        }
-      } else if(e.ChangedButton == MouseButton.Middle) {
-        if(timeline == null) return;
-
-        int lane = timeline.Lanes - 1 - (int)(e.GetPosition(NotesCanvas).Y / LanePixelHeight);
-        double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
-
-        if(lane < 0 || lane >= timeline.Lanes) return;
-        if(time < 0 || time > timeline.Length) return;
-
-        Note newNote = new() {
-          Lane = lane,
-          Start = time,
-          Duration = 0.5 // default, can adjust later
-        };
-
-        // Snap to safe space (push other notes if needed)
-        bool placed = TrySnapNoteToTimeline(newNote);
-        if(!placed) {
-          UpdateStatusBox("Cannot place note: no free space.");
-        } else {
-          timeline.Notes.Add(newNote);
-          DrawNotes();
-          DrawMinimap();
-        }
-      }
-    }
-    public void Minimap_MouseMove(object sender, MouseEventArgs e) {
-      if(!isDraggingMinimap) return;
-
-      double x = e.GetPosition(MinimapCanvas).X;
-      JumpToMinimapPosition(x);
-    }
-    public void Minimap_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
-      isDraggingMinimap = false;
-      MinimapCanvas.ReleaseMouseCapture();
-    }
-    public void TimelineScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e) {
-      // Wheel ONLY = horizontal scroll
-      TimelineScrollViewer.ScrollToHorizontalOffset(
-          TimelineScrollViewer.HorizontalOffset - e.Delta
-      );
-
-      e.Handled = true;
-    }
-    public void TimelineScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) {
-      DrawPitchGraph();
-      UpdateMinimapViewport(); // only move the viewport rectangle
-    }
     #endregion
-
-    private static SolidColorBrush DarkenBrush(SolidColorBrush brush, double factor) {
-      var c = brush.Color;
-      return new SolidColorBrush(Color.FromRgb(
-          (byte)(c.R * factor),
-          (byte)(c.G * factor),
-          (byte)(c.B * factor)
-      ));
-    }
 
     #region Status Box Helpers
     private void UpdateStatusBox(string message, bool overwrite = false) {
@@ -1076,7 +1087,6 @@ namespace TimelineEditor {
       [JsonPropertyName("pitches")]
       public List<PitchSample> PitchSamples { get; set; } = new();
     }
-
     public class Note {
       [JsonPropertyName("start")]
       public double Start { get; set; }
@@ -1088,10 +1098,9 @@ namespace TimelineEditor {
       public int Lane { get; set; }
 
       [JsonPropertyName("type")]
-      public string Type { get; set; } = "normal"; 
+      public string Type { get; set; } = "normal";
     }
-
-  public class PitchSample {
+    public class PitchSample {
       [JsonPropertyName("time")]
       public double Time { get; set; }   // seconds
       [JsonPropertyName("pitch")]
