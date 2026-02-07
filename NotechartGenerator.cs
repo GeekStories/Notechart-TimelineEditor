@@ -7,17 +7,19 @@ namespace TimelineEditor
 
     public async Task<GeneratorResult> GenerateAsync(
       string audioFile,
+      string lyricPath,
       GeneratorSettings settings,
       IProgress<string>? progress = null
     ) {
-      if(string.IsNullOrWhiteSpace(audioFile))
-        return GeneratorResult.Fail("No audio file provided.");
+      if(string.IsNullOrWhiteSpace(audioFile) || string.IsNullOrEmpty(lyricPath))
+        return GeneratorResult.Fail("Missing required file (Audio or Lyrics)");
 
-      return await Task.Run(() => Run(audioFile, settings, progress));
+      return await Task.Run(() => Run(audioFile, lyricPath, settings, progress));
     }
 
     private GeneratorResult Run(
       string audioFile,
+      string lyricPath,
       GeneratorSettings settings,
       IProgress<string>? progress
     ) {
@@ -26,7 +28,7 @@ namespace TimelineEditor
 
         var psi = new ProcessStartInfo {
           FileName = "notechart",
-          Arguments = BuildArguments(audioFile, settings),
+          Arguments = BuildArguments(audioFile, lyricPath, settings),
           UseShellExecute = false,
           RedirectStandardOutput = true,
           RedirectStandardError = true,
@@ -57,9 +59,10 @@ namespace TimelineEditor
       }
     }
 
-    private static string BuildArguments(string audioFile, GeneratorSettings cfg) {
+    private static string BuildArguments(string audioFile, string lyricPath, GeneratorSettings cfg) {
       var args = new List<string> {
       $"\"{audioFile}\"",
+      $"\"{lyricPath}\"",
       $"--window-size {cfg.WindowSize}",
       $"--hop-size {cfg.HopSize}",
       $"--min-freq {cfg.MinFreq}",

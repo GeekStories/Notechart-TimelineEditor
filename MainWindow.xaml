@@ -6,23 +6,26 @@
         xmlns:local="clr-namespace:TimelineEditor"
 		mc:Ignorable="d"
 		PreviewKeyDown="Window_KeyUp"
-        Title="Timeline Editor 0.1.0" Height="719" Width="1278" WindowStartupLocation="CenterScreen">
+        Title="Timeline Editor 0.4.0" Height="720" Width="1280" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
 		<ToolBar DockPanel.Dock="Top" VerticalAlignment="Center">
 			<Button x:Name="OpenFileButton" Content="Open" Click="Browse_Click"/>
-			<Button x:Name="ImportFileButton" Content="Import" Click="Import_Click"/>
+			<Button x:Name="OpenLyricsButton" Content="Open Lyrics" Click="BrowseLyrics_Click"/>
+			<Button x:Name="ImportFileButton" Content="Import Notes" Click="Import_Click"/>
 			<Button x:Name="OpenSettingsWindowButton" Content="Settings" Click="OpenSettings_Click"/>
 			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
 			<ComboBox x:Name="ConfigSelector" Width="160" Text="No configs found" SelectionChanged="ConfigSelector_SelectionChanged" Margin="10,0,1,0" />
 			<TextBlock x:Name="NoteFileLabel" Text="Note File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 			<TextBlock Text="||" VerticalAlignment="Center" Margin="10,0,10,0" />
 			<TextBlock x:Name="AudioFileLabel" Text="Audio File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+			<TextBlock Text="||" VerticalAlignment="Center" Margin="10,0,10,0" />
+			<TextBlock x:Name="LyricsFileLabel" Text="Lyrics File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
 		</ToolBar>
 		<!-- Generator Settings -->
 		<Grid Margin="10" Width="250">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
-				<!-- Clear -->
+				<!-- CLEAR -->
 				<RowDefinition Height="Auto"/>
 				<!-- Generator settings -->
 				<RowDefinition Height="*" />
@@ -31,6 +34,7 @@
 				<!-- Divider -->
 				<RowDefinition Height="Auto"/>
 				<!-- Play buttons -->
+				<RowDefinition Height="Auto"/>
 			</Grid.RowDefinitions>
 
 			<StackPanel Grid.Row="0" Orientation="Vertical">
@@ -170,12 +174,27 @@
 				<Line Stroke="Gray" StrokeThickness="2" Stretch="Fill" X1="1" Margin="0,5,0,5" />
 			</StackPanel>
 
-			<StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-				<CheckBox x:Name="LoopCheckbox" Content="Loop" VerticalAlignment="Center" Margin="0,0,10,0"/>
-				<CheckBox x:Name="FollowPlayheadCheckbox" Content="Autoscroll" VerticalAlignment="Center" Margin="0,0,10,0"/>
-				<Button Content="▶" Click="Play_Click" Padding="10,5,10,5"/>
-				<Button Content="⏸" Click="Stop_Click" Padding="10,5,10,5" Margin="1,0,1,0"/>
-				<Button Content="⏮" Click="Reset_Click" Padding="10,5,10,5"/>
+			<StackPanel Grid.Row="4" Orientation="Vertical">
+				<Grid HorizontalAlignment="Right">
+					<Grid.ColumnDefinitions>
+						<ColumnDefinition Width="Auto"/>
+						<ColumnDefinition Width="Auto"/>
+						<ColumnDefinition Width="Auto"/>
+					</Grid.ColumnDefinitions>
+					<CheckBox  Grid.Column="0" x:Name="LoopCheckbox" Content="Loop" VerticalAlignment="Center" Margin="0,0,10,0"/>
+					<CheckBox Grid.Column="1" x:Name="FollowPlayheadCheckbox" Content="Autoscroll" VerticalAlignment="Center" Margin="0,0,10,0"/>
+					<TextBlock Grid.Column="2" x:Name="PlayheadLabel" Text="(00:00:00s)" HorizontalAlignment="Right" />
+				</Grid>
+				<Grid HorizontalAlignment="Right" Margin="0,5,0,5">
+					<Grid.ColumnDefinitions>
+						<ColumnDefinition Width="Auto"/>
+						<ColumnDefinition Width="Auto"/>
+						<ColumnDefinition Width="Auto"/>
+					</Grid.ColumnDefinitions>
+					<Button Grid.Column="0" Content="▶ Play" Click="Play_Click" Padding="5,5,5,5" />
+					<Button Grid.Column="1" Content="⏸ Pause" Click="Stop_Click" Padding="5,5,5,5" Margin="5,0,5,0"/>
+					<Button Grid.Column="2" Content="⏮ Reset" Click="Reset_Click" Padding="5,5,5,5"/>
+				</Grid>
 			</StackPanel>
 		</Grid>
 
@@ -198,13 +217,22 @@
               CanContentScroll="False"
               ScrollChanged="TimelineScrollViewer_ScrollChanged"
               PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
-			<Grid x:Name="TimelineGrid" Background="#111" VerticalAlignment="stretch">
-				<!-- Layer 0: Pitch Graph -->
-				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False"/>
-				<!-- Layer 1: Notes -->
-				<Canvas x:Name="NotesCanvas" Background="Transparent" MouseUp="Timeline_MouseUp" MouseMove="NotesCanvas_MouseMove" />
-				<!-- Layer 2: Playhead -->
-				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False" />
+			<Grid x:Name="TimelineGrid" Background="#141414" VerticalAlignment="stretch">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="423*"/>
+					<ColumnDefinition Width="17*"/>
+					<ColumnDefinition Width="570*"/>
+				</Grid.ColumnDefinitions>
+				<!-- Layer 0: Time Grid -->
+				<Canvas x:Name="GridCanvas" IsHitTestVisible="False" Grid.ColumnSpan="3" />
+				<!-- Layer 1: Pitch Graph -->
+				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False" Grid.ColumnSpan="3"/>
+				<!-- Layer 2: Lyrics -->
+				<Canvas x:Name="LyricsCanvas" Background="Transparent" Grid.ColumnSpan="3" />
+				<!-- Layer 3: Notes -->
+				<Canvas x:Name="NotesCanvas" Background="Transparent" MouseUp="Timeline_MouseUp" MouseMove="NotesCanvas_MouseMove" Grid.ColumnSpan="3" />
+				<!-- Layer 4: Playhead -->
+				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False" Grid.ColumnSpan="3" />
 			</Grid>
 		</ScrollViewer>
 	</DockPanel>

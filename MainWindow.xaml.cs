@@ -1,6 +1,5 @@
 ﻿using Microsoft.Win32;
 using NAudio.Wave;
-using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -28,6 +27,8 @@ namespace TimelineEditor {
     private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
     private const double PixelsPerSecond = 300;
     private Line? playheadLine;
+
+    private string lyricsPath = string.Empty;
 
     // Dragging state
     private Rectangle? draggedNoteRect;
@@ -64,9 +65,11 @@ namespace TimelineEditor {
 
       // Force update when canvas size changes
       TimelineGrid.SizeChanged += (_, __) => {
+        DrawTimeGrid();
         DrawNotes();
         DrawPitchGraph();
         CreatePlayHead();
+        DrawLyrics();
       };
       MinimapCanvas.SizeChanged += (s, e) => DrawMinimap();
 
@@ -82,6 +85,7 @@ namespace TimelineEditor {
     #region Input Handlers
     private void Import_Click(object sender, RoutedEventArgs e) => ImportNotes();
     private void Browse_Click(object sender, RoutedEventArgs e) => BrowseAudio();
+    private void BrowseLyrics_Click(object sender, RoutedEventArgs e) => BrowseLyrics();
     private void ClearProject_Click(object sender, RoutedEventArgs e) => ClearTimeline();
     private void SaveProject_Click(object sender, RoutedEventArgs e) => SaveTimeline();
     private void GenerateNotes_Click(object sender, RoutedEventArgs e) => GenerateNotes();
@@ -570,6 +574,16 @@ namespace TimelineEditor {
         DrawTimeline();
       }
     }
+    private void BrowseLyrics() {
+      OpenFileDialog dlg = new() {
+        Filter = "Text Files (*.txt)|*.txt"
+      };
+
+      if(dlg.ShowDialog() == true) {
+        lyricsPath = dlg.FileName;
+        LyricsFileLabel.Text = $"Lyrics File: {System.IO.Path.GetFileName(lyricsPath)}";
+      }
+    }
     private void BrowseAudio() {
       OpenFileDialog dlg = new() {
         Filter = "Audio Files (*.wav;)|*.wav;"
@@ -595,6 +609,7 @@ namespace TimelineEditor {
       MinimapCanvas.Children.Clear();
       NotesCanvas.Children.Clear();
       PitchCanvas.Children.Clear();
+      LyricsCanvas.Children.Clear();
 
       timeline = new();
 
@@ -604,7 +619,6 @@ namespace TimelineEditor {
       UpdateMinimapViewport();
 
       UpdatePlayhead(0);
-      ClearStatusBox();
     }
     private void OpenSettingsWindow() {
       if(SettingsWindow.IsVisible) {
@@ -637,7 +651,6 @@ namespace TimelineEditor {
 
     #region Generate / Run Python
     private async void GenerateNotes() {
-      if(string.IsNullOrEmpty(audioPath)) return;
       if(CurrentConfig == null) return;
 
       GenerateButton.IsEnabled = false;
@@ -646,6 +659,7 @@ namespace TimelineEditor {
       var progress = new Progress<string>(msg => UpdateStatusBox(msg));
       var result = await _generator.GenerateAsync(
         audioPath,
+        lyricsPath,
         CurrentConfig,
         progress
       );
@@ -706,6 +720,9 @@ namespace TimelineEditor {
     private void UpdatePlayhead(double timeSeconds) {
       double x = timeSeconds * PixelsPerSecond;
 
+      TimeSpan time = TimeSpan.FromSeconds(timeSeconds);
+      PlayheadLabel.Text = time.ToString(@"mm\:ss\.ff");
+
       if(PlayheadCanvas.Children.Count == 0) return;
       if(PlayheadCanvas.Children[0] is Line line) {
         line.X1 = line.X2 = x;
@@ -752,7 +769,7 @@ namespace TimelineEditor {
       if(timelineLengthSeconds <= 0) timelineLengthSeconds = 10;
 
       double width = timelineLengthSeconds * PixelsPerSecond;
-      PitchCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
+      PitchCanvas.Width = LyricsCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
 
       playheadTimer = new DispatcherTimer {
         Interval = TimeSpan.FromMilliseconds(16) // ~60 FPS
@@ -925,13 +942,41 @@ namespace TimelineEditor {
     private void DrawTimeline() {
       SetupTimelineForAudio();  // sets sizes, clears pitch/notes once
 
+      DrawTimeGrid();
       DrawPitchGraph();
       UpdateStatusBox($"Loaded {timeline.PitchSamples.Count} pitch samples.");
 
       DrawNotes();
       CreatePlayHead();
 
+      DrawLyrics();
       DrawMinimap();
+    }
+    private void DrawTimeGrid() {
+      GridCanvas.Children.Clear();
+
+      double pixelsPerSecond = PixelsPerSecond;
+      double height = TimelineGrid.ActualHeight;
+      double width = TimelineGrid.ActualWidth;
+
+      for(double t = 0; t < width / pixelsPerSecond; t += 0.25) {
+        double x = t * pixelsPerSecond;
+
+        bool isSecond = Math.Abs(t % 1.0) < 0.001;
+
+        var line = new Line {
+          X1 = x,
+          X2 = x,
+          Y1 = 0,
+          Y2 = height,
+          Stroke = isSecond
+                ? new SolidColorBrush(Color.FromRgb(60, 60, 60))
+                : new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+          StrokeThickness = isSecond ? 2 : 1
+        };
+
+        GridCanvas.Children.Add(line);
+      }
     }
     private void DrawMinimap() {
       if(MinimapCanvas.ActualHeight <= 0 || MinimapCanvas.ActualWidth <= 0)
@@ -964,6 +1009,43 @@ namespace TimelineEditor {
       InitMinimapViewport();
       Canvas.SetZIndex(minimapViewport, 100);
       UpdateMinimapViewport();
+    }
+    private void DrawLyrics() {
+      if(audio == null || output == null) return;
+
+      LyricsCanvas.Children.Clear();
+
+      foreach(Lyric l in timeline.Lyrics) {
+        if(l.Text == "") continue;
+
+        Border border = new() {
+          Background = new SolidColorBrush(Color.FromRgb(51, 0, 0)),
+          CornerRadius = new CornerRadius(12),
+          Padding = new Thickness(10),
+        };
+
+        TextBlock text = new() {
+          Text = l.Text,
+          FontSize = 40,
+          FontWeight = FontWeights.SemiBold,
+          Foreground = Brushes.White,
+          TextAlignment = TextAlignment.Center,
+          TextWrapping = TextWrapping.Wrap,
+          VerticalAlignment = VerticalAlignment.Center,
+          LineHeight = 64,
+          LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+        };
+
+        border.Child = text;
+
+        text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double textWidth = text.DesiredSize.Width;
+
+        Canvas.SetLeft(border, TimeToX(l.Start) - (textWidth / 2));
+        Canvas.SetTop(border, 10);
+
+        LyricsCanvas.Children.Add(border);
+      }
     }
     #endregion
 
@@ -1086,6 +1168,8 @@ namespace TimelineEditor {
 
       [JsonPropertyName("pitches")]
       public List<PitchSample> PitchSamples { get; set; } = new();
+      [JsonPropertyName("lyrics")]
+      public List<Lyric> Lyrics { get; set; } = new();
     }
     public class Note {
       [JsonPropertyName("start")]
@@ -1107,6 +1191,14 @@ namespace TimelineEditor {
       public double Pitch { get; set; }  // Hz
       [JsonPropertyName("midi")]
       public double Midi { get; set; }   // Midi
+    }
+    public class Lyric {
+      [JsonPropertyName("start")]
+      public double Start { get; set; }
+      [JsonPropertyName("end")]
+      public double End { get; set; }
+      [JsonPropertyName("text")]
+      public string Text { get; set; } = "";
     }
     #endregion
   }
