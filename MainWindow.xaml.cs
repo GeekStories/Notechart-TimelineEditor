@@ -19,16 +19,27 @@ namespace TimelineEditor {
 
     // State
     private string audioPath;
+    private string lyricsPath = string.Empty;
+
     private Timeline timeline;
     private Dictionary<string, GeneratorSettings> configs;
     private Note? hoveredNote = null;
     private double splitPreviewTime = 0;
     private Line? splitPreviewLine = null;
-    private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
-    private const double PixelsPerSecond = 300;
-    private Line? playheadLine;
 
-    private string lyricsPath = string.Empty;
+    private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
+    private double VisibleSeconds = 8.0;
+    double PixelsPerSecond {
+      get {
+        if(TimelineScrollViewer.ViewportWidth <= 0) return 1; // default value to avoid division by zero
+        return TimelineScrollViewer.ViewportWidth / VisibleSeconds;
+      }
+    }
+
+    double TimelineViewStart =>
+        TimelineScrollViewer.HorizontalOffset / PixelsPerSecond;
+
+    private Line? playheadLine;
 
     // Dragging state
     private Rectangle? draggedNoteRect;
@@ -45,7 +56,8 @@ namespace TimelineEditor {
     // Audio playback
     private WaveOutEvent? output;
     private AudioFileReader? audio;
-    private DispatcherTimer? playheadTimer;
+    private TranslateTransform playheadTransform = new();
+
 
     // Config Info
     private GeneratorSettings? CurrentConfig => configs.TryGetValue(Properties.Settings.Default.LastConfigFile, out var cfg) ? cfg : null;
@@ -340,6 +352,16 @@ namespace TimelineEditor {
     #endregion
 
     #region Helpers
+    private void UpdateStatusBox(string message, bool overwrite = false) {
+      Dispatcher.Invoke(() => {
+        if(overwrite)
+          StatusTextBlock.Text = $"[{DateTime.Now:t}]: {message}\n";
+        else
+          StatusTextBlock.Text += $"[{DateTime.Now:t}]: {message}\n";
+
+        OutputScrollView.ScrollToBottom();
+      });
+    }
     private (double time, int lane) MouseToTimeline(Point pos) {
       double time = pos.X / PixelsPerSecond;
       int lane = timeline.Lanes - 1 - (int)(pos.Y / LanePixelHeight);
@@ -558,25 +580,32 @@ namespace TimelineEditor {
 
       if(dlg.ShowDialog() == true) {
         string json = File.ReadAllText(dlg.FileName);
-        Timeline? loaded = JsonSerializer.Deserialize<Timeline>(json);
 
-        if(loaded == null) {
-          MessageBox.Show("Failed to load timeline from the selected file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-          return;
+        try {
+          Timeline? loaded = JsonSerializer.Deserialize<Timeline>(json);
+
+
+          if(loaded == null) {
+            MessageBox.Show("Failed to load timeline from the selected file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+          }
+
+          NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(dlg.FileName)}";
+          timeline = loaded;
+        } catch(Exception ex) {
+          Debug.WriteLine(ex);
+          UpdateStatusBox("Failed to load timeline from selected file");
+        } finally {
+          LaneCountTextBlock.Text = $"{timeline.Lanes}";
+
+          UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
+          DrawTimeline();
         }
-
-        NoteFileLabel.Text = $"Note File: {System.IO.Path.GetFileName(dlg.FileName)}";
-        timeline = loaded;
-
-        LaneCountTextBlock.Text = $"{timeline.Lanes}";
-
-        UpdateStatusBox($"Imported Notes: {System.IO.Path.GetFileName(dlg.FileName)}");
-        DrawTimeline();
       }
     }
     private void BrowseLyrics() {
       OpenFileDialog dlg = new() {
-        Filter = "Text Files (*.txt)|*.txt"
+        Filter = "JSON Files (*.json)|*.json"
       };
 
       if(dlg.ShowDialog() == true) {
@@ -711,24 +740,17 @@ namespace TimelineEditor {
         X1 = 0,
         X2 = 0,
         Tag = "playhead",
-        IsHitTestVisible = false
+        IsHitTestVisible = false,
+        RenderTransform = playheadTransform // <-- GPU-friendly transform
       };
 
       PlayheadCanvas.SizeChanged += (_, _) => UpdatePlayheadHeight();
       PlayheadCanvas.Children.Add(playheadLine);
     }
     private void UpdatePlayhead(double timeSeconds) {
-      double x = timeSeconds * PixelsPerSecond;
-
+      playheadTransform.X = TimeToCanvasX(timeSeconds);
       TimeSpan time = TimeSpan.FromSeconds(timeSeconds);
       PlayheadLabel.Text = time.ToString(@"mm\:ss\.ff");
-
-      if(PlayheadCanvas.Children.Count == 0) return;
-      if(PlayheadCanvas.Children[0] is Line line) {
-        line.X1 = line.X2 = x;
-      }
-
-      if(FollowPlayheadCheckbox.IsChecked == true) AutoScrollTimeline(x);
     }
     private void AutoScrollTimeline(double playheadX) {
       double left = TimelineScrollViewer.HorizontalOffset;
@@ -741,24 +763,22 @@ namespace TimelineEditor {
       }
     }
     private void Play() {
-      if(audio == null || output == null || playheadTimer == null) {
+      if(audio == null || output == null) {
         UpdateStatusBox("No audio loaded..");
         return;
       }
 
       output.Play();
-      playheadTimer.Start();
     }
     private void Stop() {
-      if(output == null || playheadTimer == null) return;
-
+      if(output == null) return;
       output.Pause();
-      playheadTimer.Stop();
     }
     private void Reset() {
       if(audio == null) return;
 
       audio.Position = 0;
+      audio.CurrentTime = TimeSpan.Zero;
       UpdatePlayhead(0);
     }
     #endregion
@@ -771,15 +791,13 @@ namespace TimelineEditor {
       double width = timelineLengthSeconds * PixelsPerSecond;
       PitchCanvas.Width = LyricsCanvas.Width = NotesCanvas.Width = PlayheadCanvas.Width = width;
 
-      playheadTimer = new DispatcherTimer {
-        Interval = TimeSpan.FromMilliseconds(16) // ~60 FPS
-      };
-      playheadTimer.Tick += (s, e) => {
+      CompositionTarget.Rendering += (s, e) => {
         if(audio == null) return;
         if(audio.CurrentTime.TotalSeconds >= audio.TotalTime.TotalSeconds && LoopCheckbox.IsChecked == true) {
           Reset();
           return;
         }
+
         UpdatePlayhead(audio.CurrentTime.TotalSeconds);
       };
 
@@ -847,18 +865,17 @@ namespace TimelineEditor {
 
       if(timeline.PitchSamples.Count == 0) return;
 
-      float viewStart = (float)(TimelineScrollViewer.HorizontalOffset / PixelsPerSecond);
       float viewEnd = (float)((TimelineScrollViewer.HorizontalOffset + TimelineScrollViewer.ViewportWidth) / PixelsPerSecond);
 
       PitchSample? prev = null;
 
       foreach(var p in timeline.PitchSamples) {
-        if(p.Time < viewStart || p.Time > viewEnd || p.Midi <= 0)
+        if(p.Time < TimelineViewStart || p.Time > viewEnd || p.Midi <= 0)
           continue;
 
         if(prev == null || !IsContinuous(prev, p)) {
           figure = new PathFigure {
-            StartPoint = new Point(TimeToX(p.Time), MidiToY(p.Midi)),
+            StartPoint = new Point(TimeToViewX(p.Time), MidiToY(p.Midi)),
             IsFilled = false,
             IsClosed = false
           };
@@ -866,7 +883,7 @@ namespace TimelineEditor {
         } else {
           figure!.Segments.Add(
               new LineSegment(
-                  new Point(TimeToX(p.Time), MidiToY(p.Midi)),
+                  new Point(TimeToViewX(p.Time), MidiToY(p.Midi)),
                   true
               )
           );
@@ -918,9 +935,10 @@ namespace TimelineEditor {
       // Middle zone: allow if time gap is very small
       return dt < MaxTimeGap * 0.5;
     }
-    private static double TimeToX(double timeSeconds) {
-      return timeSeconds * PixelsPerSecond;
-    }
+    private double TimeToCanvasX(double timeSeconds)
+      => timeSeconds * PixelsPerSecond;
+    private double TimeToViewX(double timeSeconds)
+      => (timeSeconds - TimelineViewStart) * PixelsPerSecond;
     private double LaneToY(int lane, double laneHeight) {
       int laneIndex = (timeline.Lanes - 1) - lane;
       laneIndex = Math.Clamp(laneIndex, 0, timeline.Lanes - 1);
@@ -955,12 +973,11 @@ namespace TimelineEditor {
     private void DrawTimeGrid() {
       GridCanvas.Children.Clear();
 
-      double pixelsPerSecond = PixelsPerSecond;
       double height = TimelineGrid.ActualHeight;
       double width = TimelineGrid.ActualWidth;
 
-      for(double t = 0; t < width / pixelsPerSecond; t += 0.25) {
-        double x = t * pixelsPerSecond;
+      for(double t = 0; t < width / PixelsPerSecond; t += 0.25) {
+        double x = TimeToCanvasX(t);
 
         bool isSecond = Math.Abs(t % 1.0) < 0.001;
 
@@ -1012,38 +1029,19 @@ namespace TimelineEditor {
     }
     private void DrawLyrics() {
       if(audio == null || output == null) return;
-
       LyricsCanvas.Children.Clear();
 
       foreach(Lyric l in timeline.Lyrics) {
-        if(l.Text == "") continue;
+        if(string.IsNullOrWhiteSpace(l.Text)) continue;
 
-        Border border = new() {
-          Background = new SolidColorBrush(Color.FromRgb(51, 0, 0)),
-          CornerRadius = new CornerRadius(12),
-          Padding = new Thickness(10),
-        };
-
-        TextBlock text = new() {
-          Text = l.Text,
-          FontSize = 40,
-          FontWeight = FontWeights.SemiBold,
-          Foreground = Brushes.White,
-          TextAlignment = TextAlignment.Center,
-          TextWrapping = TextWrapping.Wrap,
-          VerticalAlignment = VerticalAlignment.Center,
-          LineHeight = 64,
-          LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-        };
+        Border border = new() { Background = new SolidColorBrush(Color.FromRgb(51, 0, 0)), CornerRadius = new CornerRadius(12), Padding = new Thickness(10), HorizontalAlignment = HorizontalAlignment.Stretch };
+        TextBlock text = new() { Text = l.Text, FontSize = 40, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch, LineHeight = 64, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, };
 
         border.Child = text;
 
-        text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double textWidth = text.DesiredSize.Width;
-
-        Canvas.SetLeft(border, TimeToX(l.Start) - (textWidth / 2));
-        Canvas.SetTop(border, 10);
-
+        Canvas.SetLeft(border, TimeToCanvasX(l.Start));
+        Canvas.SetTop(border, 10); 
+        
         LyricsCanvas.Children.Add(border);
       }
     }
@@ -1133,22 +1131,6 @@ namespace TimelineEditor {
       DrawNotes();
       DrawMinimap();
       return true;
-    }
-    #endregion
-
-    #region Status Box Helpers
-    private void UpdateStatusBox(string message, bool overwrite = false) {
-      Dispatcher.Invoke(() => {
-        if(overwrite)
-          StatusTextBlock.Text = $"[{DateTime.Now:t}]: {message}\n";
-        else
-          StatusTextBlock.Text += $"[{DateTime.Now:t}]: {message}\n";
-
-        OutputScrollView.ScrollToBottom();
-      });
-    }
-    private void ClearStatusBox() {
-      StatusTextBlock.Text = "";
     }
     #endregion
 
