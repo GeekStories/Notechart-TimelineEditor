@@ -17,6 +17,13 @@ namespace TimelineEditor {
   /// </summary>
   public partial class MainWindow : Window {
 
+    enum DragMode {
+      None,
+      Move,
+      ResizeLeft,
+      ResizeRight
+    }
+
     // State
     private string audioPath;
     private string lyricsPath = string.Empty;
@@ -33,13 +40,19 @@ namespace TimelineEditor {
 
     private Line? playheadLine;
 
+    DragMode dragMode = DragMode.None;
     // Dragging state
     private Rectangle? draggedNoteRect;
     private Note? draggedNote;
     private Note? original;
+    double originalLeft;
+    double originalWidth;
     private Point dragStartMouse;
     private double dragStartX;
     private double dragStartY;
+    // Resize state
+    const double ResizeHandleWidth = 6; // px
+    const double MinNoteDuration = 0.5; // second
 
     // Minimap
     private Rectangle? minimapViewport;
@@ -139,12 +152,25 @@ namespace TimelineEditor {
         Duration = note.Duration
       };
 
+      originalLeft = Canvas.GetLeft(rect);
+      originalWidth = rect.Width;
+
       draggedNoteRect = rect;
       draggedNote = note;
 
       dragStartMouse = e.GetPosition(NotesCanvas);
       dragStartX = Canvas.GetLeft(rect);
       dragStartY = Canvas.GetTop(rect);
+
+      Point localPos = e.GetPosition(rect);
+
+      if(localPos.X <= ResizeHandleWidth) {
+        dragMode = DragMode.ResizeLeft;
+      } else if(localPos.X >= rect.Width - ResizeHandleWidth) {
+        dragMode = DragMode.ResizeRight;
+      } else {
+        dragMode = DragMode.Move;
+      }
 
       rect.CaptureMouse();
       e.Handled = true;
@@ -156,23 +182,13 @@ namespace TimelineEditor {
       Point pos = e.GetPosition(NotesCanvas);
       Vector delta = pos - dragStartMouse;
 
-      // --- Time (X axis) ---
-      double newX = Math.Max(0, dragStartX + delta.X);
-      Canvas.SetLeft(draggedNoteRect, newX);
-      draggedNote.Start = Math.Round(newX / PixelsPerSecond, 3);
-
-      // --- Lane (Y axis) ---
-      double newY = dragStartY + delta.Y;
-      double clampedY = Math.Clamp(newY, 0, NotesCanvas.ActualHeight);
-
-      double laneFloat = (clampedY + LanePixelHeight / 2) / LanePixelHeight;
-      int laneIndex = (int)Math.Floor(laneFloat);
-
-      int newLane = (timeline.Lanes - 1) - laneIndex;
-      newLane = Math.Clamp(newLane, 0, timeline.Lanes - 1);
-
-      draggedNote.Lane = newLane;
-      Canvas.SetTop(draggedNoteRect, LaneToY(newLane, LanePixelHeight));
+      if(dragMode == DragMode.Move) {
+        MoveNote(delta);
+      } else if(dragMode == DragMode.ResizeLeft) {
+        ResizeLeft(delta);
+      } else if(dragMode == DragMode.ResizeRight) {
+        ResizeRight(delta);
+      }
 
       UpdateMinimapViewport();
     }
@@ -181,13 +197,18 @@ namespace TimelineEditor {
 
       draggedNoteRect.ReleaseMouseCapture();
 
-      // Try to snap the note into safe space
-      bool ok = TrySnapNoteToTimeline(draggedNote);
+      bool ok = true;
+      if(dragMode == DragMode.Move) {
+        ok = TrySnapNoteToTimeline(draggedNote);
+      }
+
       if(!ok) {
         draggedNote.Start = original.Start;
         draggedNote.Lane = original.Lane;
+        draggedNote.Duration = original.Duration;
       }
 
+      dragMode = DragMode.None;
       draggedNoteRect = null;
       draggedNote = null;
       original = null;
@@ -387,6 +408,102 @@ namespace TimelineEditor {
           (byte)(c.G * factor),
           (byte)(c.B * factor)
       ));
+    }
+    private void MoveNote(Vector delta) {
+      if(draggedNote == null || draggedNoteRect == null) return;
+      // --- Time (X axis) ---
+      double newX = Math.Max(0, dragStartX + delta.X);
+      Canvas.SetLeft(draggedNoteRect, newX); 
+      draggedNote.Start = Math.Round(newX / PixelsPerSecond, 3); 
+      
+      // --- Lane (Y axis) ---
+      double newY = dragStartY + delta.Y; 
+      double clampedY = Math.Clamp(newY, 0, NotesCanvas.ActualHeight); 
+      double laneFloat = (clampedY + LanePixelHeight / 2) / LanePixelHeight; 
+      int laneIndex = (int)Math.Floor(laneFloat); 
+      int newLane = (timeline.Lanes - 1) - laneIndex; 
+      newLane = Math.Clamp(newLane, 0, timeline.Lanes - 1); 
+      draggedNote.Lane = newLane; 
+      Canvas.SetTop(draggedNoteRect, LaneToY(newLane, LanePixelHeight));
+    }
+    private void ResizeRight(Vector delta) {
+      double newWidth = originalWidth + delta.X;
+
+      double minWidth = MinNoteDuration * PixelsPerSecond;
+      double maxRight = GetGlobalRightBound(draggedNote) * PixelsPerSecond;
+      double leftPx = originalLeft;
+
+      double maxWidth = maxRight - leftPx;
+      newWidth = Math.Clamp(newWidth, minWidth, maxWidth);
+
+      draggedNoteRect.Width = newWidth;
+      draggedNote.Duration = Math.Round(newWidth / PixelsPerSecond, 3);
+    }
+    private void ResizeLeft(Vector delta) {
+      double newLeft = originalLeft + delta.X;
+
+      double minWidth = MinNoteDuration * PixelsPerSecond;
+      double maxLeft = GetGlobalLeftBound(draggedNote) * PixelsPerSecond;
+
+      newLeft = Math.Max(newLeft, maxLeft);
+
+      double rightEdge = originalLeft + originalWidth;
+      double newWidth = rightEdge - newLeft;
+
+      if(newWidth < minWidth) {
+        newWidth = minWidth;
+        newLeft = rightEdge - newWidth;
+      }
+
+      Canvas.SetLeft(draggedNoteRect, newLeft);
+      draggedNoteRect.Width = newWidth;
+
+      draggedNote.Start = Math.Round(newLeft / PixelsPerSecond, 3);
+      draggedNote.Duration = Math.Round(newWidth / PixelsPerSecond, 3);
+    }
+
+    private double GetMaxLeftX(Note note) {
+      var prev = timeline.Notes
+        .Where(n => n.Lane == note.Lane && n.Start < note.Start)
+        .OrderByDescending(n => n.Start)
+        .FirstOrDefault();
+
+      return prev != null
+        ? (prev.Start + prev.Duration) * PixelsPerSecond
+        : 0;
+    }
+    private double GetMaxRightWidth(Note note) {
+      var next = timeline.Notes
+        .Where(n => n.Lane == note.Lane && n.Start > note.Start)
+        .OrderBy(n => n.Start)
+        .FirstOrDefault();
+
+      double rightLimit = next != null
+        ? next.Start * PixelsPerSecond
+        : timeline.Length * PixelsPerSecond;
+
+      double leftX = Canvas.GetLeft(draggedNoteRect);
+      return rightLimit - leftX;
+    }
+    private double GetGlobalLeftBound(Note note) {
+      var prev = timeline.Notes
+        .Where(n => n != note && n.Start + n.Duration <= note.Start)
+        .OrderByDescending(n => n.Start + n.Duration)
+        .FirstOrDefault();
+
+      return prev != null
+        ? prev.Start + prev.Duration
+        : 0;
+    }
+    private double GetGlobalRightBound(Note note) {
+      var next = timeline.Notes
+        .Where(n => n != note && n.Start >= note.Start + note.Duration)
+        .OrderBy(n => n.Start)
+        .FirstOrDefault();
+
+      return next != null
+        ? next.Start
+        : TimelineWidthSeconds;
     }
     #endregion
 
@@ -872,6 +989,14 @@ namespace TimelineEditor {
         rect.MouseLeftButtonDown += Note_MouseDown;
         rect.MouseMove += Note_MouseMove;
         rect.MouseLeftButtonUp += Note_MouseUp;
+        rect.MouseMove += (_, e) => {
+          var p = e.GetPosition(rect);
+          if(p.X < ResizeHandleWidth || p.X > rect.Width - ResizeHandleWidth)
+            rect.Cursor = Cursors.SizeWE;
+          else
+            rect.Cursor = Cursors.Hand;
+        };
+
 
         NotesCanvas.Children.Add(rect);
       }
@@ -918,7 +1043,6 @@ namespace TimelineEditor {
         StrokeEndLineCap = PenLineCap.Round
       });
     }
-
     private static bool IsContinuous(PitchSample prev, PitchSample curr) {
       if(curr.Midi <= 0 || prev.Midi <= 0)
         return false;
@@ -953,8 +1077,9 @@ namespace TimelineEditor {
       // Middle zone: allow if time gap is very small
       return dt < MaxTimeGap * 0.5;
     }
-    private double TimeToCanvasX(double timeSeconds)
-      => timeSeconds * PixelsPerSecond;
+    private static double TimeToCanvasX(double timeSeconds) {
+      return timeSeconds * PixelsPerSecond;
+    }
     private double LaneToY(int lane, double laneHeight) {
       int laneIndex = (timeline.Lanes - 1) - lane;
       laneIndex = Math.Clamp(laneIndex, 0, timeline.Lanes - 1);
@@ -1108,66 +1233,53 @@ namespace TimelineEditor {
       DrawMinimap();
       UpdateStatusBox($"Removed note at {clickedNote.Start:F2}s, lane {clickedNote.Lane}");
     }
-    private bool IsOverlapping(Note note, double startTime) {
-      double duration = note.Duration;
-      int lane = note.Lane;
-
+    private bool IsOverlapping(Note note, double start, double duration) {
       return timeline.Notes.Any(n =>
-          n != note &&
-          n.Start < startTime + duration &&
-          n.Start + n.Duration > startTime
+        n != note &&
+        n.Start < start + duration &&
+        n.Start + n.Duration > start
       );
     }
-    private bool TrySnapNoteToTimeline(Note anchorNote) {
-      if(timeline == null) return false;
+    private List<Note> GetOverlappingNotes(Note anchor) {
+      return timeline.Notes
+        .Where(n =>
+          n != anchor &&
+          n.Start < anchor.Start + anchor.Duration &&
+          n.Start + n.Duration > anchor.Start
+        )
+        .OrderBy(n => n.Start)
+        .ToList();
+    }
+    private bool TrySnapNoteToTimeline(Note anchor) {
+      var overlaps = GetOverlappingNotes(anchor);
+      if(overlaps.Count == 0)
+        return true;
 
-      double duration = anchorNote.Duration;
-
-      // Get all notes except the anchor (all lanes)
-      var otherNotes = timeline.Notes
-          .Where(n => n != anchorNote)
-          .OrderBy(n => n.Start)
-          .ToList();
-
-      foreach(var n in otherNotes) {
-        // Check for collision
-        if(n.Start < anchorNote.Start + duration && n.Start + n.Duration > anchorNote.Start) {
-          // Decide which side to move the colliding note based on drop position
-          double anchorCenter = anchorNote.Start + duration / 2;
-          double colliderCenter = n.Start + n.Duration / 2;
-
-          bool shifted = false;
-
-          if(anchorCenter < colliderCenter) {
-            // Dropped on left half → move collider right
-            double newStart = anchorNote.Start + duration;
-            if(newStart + n.Duration <= TimelineWidthSeconds && !IsOverlapping(n, newStart)) {
-              n.Start = newStart;
-              shifted = true;
-            }
-          } else {
-            // Dropped on right half → move collider left
-            double newStart = anchorNote.Start - n.Duration;
-            if(newStart >= 0 && !IsOverlapping(n, newStart)) {
-              n.Start = newStart;
-              shifted = true;
-            }
-          }
-
-          if(!shifted) {
-            // Cannot move collider → fail placement
-            return false;
-          }
+      foreach(var n in overlaps) {
+        // Try push right first
+        double pushRight = anchor.Start + anchor.Duration;
+        if(pushRight + n.Duration <= TimelineWidthSeconds &&
+           !IsOverlapping(n, pushRight, n.Duration)) {
+          n.Start = pushRight;
+          continue;
         }
+
+        // Try push left
+        double pushLeft = anchor.Start - n.Duration;
+        if(pushLeft >= 0 &&
+           !IsOverlapping(n, pushLeft, n.Duration)) {
+          n.Start = pushLeft;
+          continue;
+        }
+
+        // Cannot resolve this collision
+        return false;
       }
 
-      // Sort notes and redraw
       timeline.Notes = [.. timeline.Notes.OrderBy(n => n.Start)];
-
-      DrawNotes();
-      DrawMinimap();
       return true;
     }
+
     #endregion
 
     #region Extra Classes
