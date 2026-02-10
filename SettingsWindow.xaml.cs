@@ -26,6 +26,10 @@ namespace TimelineEditor {
     private void Ok_Click(object sender, RoutedEventArgs e) {
       Properties.Settings.Default.ConfigFolder = ConfigPathTextBox.Text;
       Properties.Settings.Default.Save();
+
+      // Reload configs immediately after changing the folder
+      ConfigWatcherService.RaiseConfigsChanged();
+
       Close();
     }
 

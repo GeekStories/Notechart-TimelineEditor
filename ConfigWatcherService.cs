@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -9,11 +10,13 @@ namespace TimelineEditor {
 
     public static event Action? ConfigsChanged;
 
-    public static void Start(string folder) {
-      Stop();
+    public static void Start(string folder, bool changed = false) {
+      Stop(changed);
 
-      if(!Directory.Exists(folder))
+      if(!Directory.Exists(folder)) {
+        Debug.WriteLine("Selected Config Directory doesn't exist");
         return;
+      }
 
       _watcher = new FileSystemWatcher(folder, "*.json") {
         NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
@@ -23,6 +26,11 @@ namespace TimelineEditor {
       _watcher.Created += OnChanged;
       _watcher.Deleted += OnChanged;
       _watcher.Renamed += OnChanged;
+    }
+
+    public static void RaiseConfigsChanged() { 
+      Start(Properties.Settings.Default.ConfigFolder, true);
+      ConfigsChanged?.Invoke();
     }
 
     private static void OnChanged(object sender, FileSystemEventArgs e) {
@@ -43,7 +51,7 @@ namespace TimelineEditor {
       ConfigsChanged?.Invoke();
     }
 
-    public static void Stop() {
+    public static void Stop(bool changed = false) {
       if(_watcher == null)
         return;
 
@@ -56,7 +64,7 @@ namespace TimelineEditor {
       _watcher.Dispose();
       _watcher = null;
 
-      ConfigsChanged = null;
+      if(!changed) ConfigsChanged = null;
     }
   }
 }

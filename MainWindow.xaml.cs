@@ -461,30 +461,6 @@ namespace TimelineEditor {
       draggedNote.Start = Math.Round(newLeft / PixelsPerSecond, 3);
       draggedNote.Duration = Math.Round(newWidth / PixelsPerSecond, 3);
     }
-
-    private double GetMaxLeftX(Note note) {
-      var prev = timeline.Notes
-        .Where(n => n.Lane == note.Lane && n.Start < note.Start)
-        .OrderByDescending(n => n.Start)
-        .FirstOrDefault();
-
-      return prev != null
-        ? (prev.Start + prev.Duration) * PixelsPerSecond
-        : 0;
-    }
-    private double GetMaxRightWidth(Note note) {
-      var next = timeline.Notes
-        .Where(n => n.Lane == note.Lane && n.Start > note.Start)
-        .OrderBy(n => n.Start)
-        .FirstOrDefault();
-
-      double rightLimit = next != null
-        ? next.Start * PixelsPerSecond
-        : timeline.Length * PixelsPerSecond;
-
-      double leftX = Canvas.GetLeft(draggedNoteRect);
-      return rightLimit - leftX;
-    }
     private double GetGlobalLeftBound(Note note) {
       var prev = timeline.Notes
         .Where(n => n != note && n.Start + n.Duration <= note.Start)
@@ -551,9 +527,13 @@ namespace TimelineEditor {
       string lastFile = Properties.Settings.Default.LastConfigFile;
 
       if(lastFile != "") {
-        UpdateStatusBox($"Found last used config: {lastFile}.json");
+        UpdateStatusBox($"Previous config: {lastFile}.json");
         // LoadConfig(Properties.Settings.Default.LastConfigFile);
         ConfigSelector.SelectedIndex = items.FindIndex(item => (string)item.Content == lastFile);
+        if(ConfigSelector.SelectedIndex == -1) {
+          UpdateStatusBox("Failed to find last used config. Maybe the directory changed?");
+          ConfigSelector.SelectedIndex = 0;
+        }
       } else if(items?.Count == 1) {
         ConfigSelector.SelectedIndex = 0;
       }
