@@ -1,3 +1,5 @@
 <Solution>
-  <Project Path="TimelineEditor.csproj" />
+  <Project Path="TimelineEditor.csproj">
+    <BuildType Project="Release" />
+  </Project>
 </Solution>
