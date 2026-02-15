@@ -35,13 +35,17 @@ namespace TimelineEditor {
     private Line? splitPreviewLine = null;
 
     private double LanePixelHeight => NotesCanvas.ActualHeight / timeline.Lanes;
-    private const double PixelsPerSecond = 100;
+    private const double PixelsPerSecond = 200;
     double TimelineWidthSeconds => audio?.TotalTime.TotalSeconds ?? timeline?.Length ?? 10;
 
+    // Playback State
     private Line? playheadLine;
+    private Stopwatch visualClock = new Stopwatch();
+    private double anchorAudioTime;
+    private double visualTime; // seconds
 
-    DragMode dragMode = DragMode.None;
     // Dragging state
+    DragMode dragMode = DragMode.None;
     private Rectangle? draggedNoteRect;
     private Note? draggedNote;
     private Note? original;
@@ -50,6 +54,7 @@ namespace TimelineEditor {
     private Point dragStartMouse;
     private double dragStartX;
     private double dragStartY;
+
     // Resize state
     const double ResizeHandleWidth = 6; // px
     const double MinNoteDuration = 0.5; // second
@@ -90,15 +95,33 @@ namespace TimelineEditor {
 
       MinimapCanvas.SizeChanged += (s, e) => DrawMinimap();
 
-      CompositionTarget.Rendering += (s, e) => {
-        if(audio == null) return;
-        if(audio.CurrentTime.TotalSeconds >= audio.TotalTime.TotalSeconds && LoopCheckbox.IsChecked == true) {
-          Reset();
-          return;
+      CompositionTarget.Rendering += (s, e) =>
+      {
+        if(audio == null || output == null) return;
+
+        double realTime =
+    (double)audio.Position / audio.WaveFormat.AverageBytesPerSecond;
+
+        if(output.PlaybackState == PlaybackState.Playing) {
+          // Interpolated time
+          double interpolated =
+              anchorAudioTime + visualClock.Elapsed.TotalSeconds;
+
+          // If audio buffer advanced, re-anchor smoothly
+          if(realTime > anchorAudioTime) {
+            anchorAudioTime = realTime;
+            visualClock.Restart();
+            interpolated = realTime;
+          }
+
+          visualTime = interpolated;
+        } else {
+          visualTime = realTime;
         }
 
-        UpdatePlayhead(audio.CurrentTime.TotalSeconds);
+        UpdatePlayhead();
       };
+
 
       LoadConfigs();
       ConfigWatcherService.ConfigsChanged += LoadConfigs;
@@ -243,8 +266,14 @@ namespace TimelineEditor {
 
         double time = e.GetPosition(NotesCanvas).X / PixelsPerSecond;
         if(audio != null) {
-          audio.CurrentTime = TimeSpan.FromSeconds(time);
-          UpdatePlayhead(time);
+
+          audio.Position = (long)(time * audio.WaveFormat.AverageBytesPerSecond);
+
+          anchorAudioTime = time;
+          visualTime = time;
+          visualClock.Restart();
+
+          UpdatePlayhead();
         }
       } else if(e.ChangedButton == MouseButton.Middle) {
         if(timeline == null) return;
@@ -751,6 +780,8 @@ namespace TimelineEditor {
         output = new WaveOutEvent();
         output.Init(audio);
 
+        output.DesiredLatency = 50;
+
         AudioFileLabel.Text = $"Audio File: {System.IO.Path.GetFileName(audioPath)} ({audio.TotalTime.Minutes}m {audio.TotalTime.Seconds}s)";
 
         DrawTimeline();
@@ -773,7 +804,7 @@ namespace TimelineEditor {
       InitMinimapViewport();
       UpdateMinimapViewport();
 
-      UpdatePlayhead(0);
+      ResetPlayHead();
     }
     private void OpenSettingsWindow() {
       if(SettingsWindow.IsVisible) {
@@ -879,10 +910,16 @@ namespace TimelineEditor {
       PlayheadCanvas.SizeChanged += (_, _) => UpdatePlayheadHeight();
       PlayheadCanvas.Children.Add(playheadLine);
     }
-    private void UpdatePlayhead(double timeSeconds) {
-      playheadTransform.X = TimeToCanvasX(timeSeconds);
-      TimeSpan time = TimeSpan.FromSeconds(timeSeconds);
+    private void UpdatePlayhead() {
+      playheadTransform.X = TimeToCanvasX(visualTime);
+      TimeSpan time = TimeSpan.FromSeconds(visualTime);
       PlayheadLabel.Text = time.ToString(@"mm\:ss\.ff");
+    }
+    private void ResetPlayHead() {
+      playheadTransform.X = 0;
+      PlayheadLabel.Text = "00:00.00";
+      anchorAudioTime = 0;
+      visualClock.Stop();
     }
     private void AutoScrollTimeline(double playheadX) {
       double left = TimelineScrollViewer.HorizontalOffset;
@@ -901,6 +938,11 @@ namespace TimelineEditor {
       }
 
       output.Play();
+
+      anchorAudioTime =
+          (double)audio.Position / audio.WaveFormat.AverageBytesPerSecond;
+
+      visualClock.Restart();
     }
     private void Stop() {
       if(output == null) return;
@@ -911,7 +953,7 @@ namespace TimelineEditor {
 
       audio.Position = 0;
       audio.CurrentTime = TimeSpan.Zero;
-      UpdatePlayhead(0);
+      ResetPlayHead();
     }
     #endregion
 
@@ -1259,7 +1301,6 @@ namespace TimelineEditor {
       timeline.Notes = [.. timeline.Notes.OrderBy(n => n.Start)];
       return true;
     }
-
     #endregion
 
     #region Extra Classes
