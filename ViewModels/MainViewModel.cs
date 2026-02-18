@@ -16,6 +16,7 @@ namespace TimelineEditor.ViewModels {
     private readonly NotechartGenerator _generator = new();
     private readonly ProjectExportService _exportService = new();
     private readonly Stopwatch _visualClock = new();
+    private bool _isGenerating = false;
 
     // Constants
     public const double PixelsPerSecond = 200;
@@ -198,7 +199,7 @@ namespace TimelineEditor.ViewModels {
       ResetCommand = new RelayCommand(_ => Reset());
       LoadVocalsCommand = new RelayCommand(_ => LoadVocals());
       LoadRawCommand = new RelayCommand(_ => LoadRaw());
-      GenerateCommand = new RelayCommand(_ => GenerateNotes(), _ => _audioService.VocalTrack != null);
+      GenerateCommand = new RelayCommand(_ => GenerateNotes(), _ => _audioService.VocalTrack != null && !_isGenerating);
       RemoveNoteCommand = new RelayCommand(param => RemoveNote((Note)param!));
       SplitNoteCommand = new RelayCommand(param => {
         var args = (Tuple<Note, double>)param!;
@@ -583,6 +584,10 @@ namespace TimelineEditor.ViewModels {
     #region Generate / Run Python
     private async void GenerateNotes() {
       if(CurrentConfig == null) return;
+
+      _isGenerating = true;
+      CommandManager.InvalidateRequerySuggested();
+
       Stop();
 
       var progress = new Progress<string>(msg => StatusMessage = msg);
@@ -591,10 +596,14 @@ namespace TimelineEditor.ViewModels {
       if(!result.Success) {
         StatusMessage = "Chart generation failed.";
         StatusMessage = result.Error ?? "Unknown error";
+        _isGenerating = false;
+        CommandManager.InvalidateRequerySuggested();
         return;
       }
 
       LoadTimelineFromFile(result.OutputPath!);
+      _isGenerating = false;
+      CommandManager.InvalidateRequerySuggested();
     }
     #endregion
 

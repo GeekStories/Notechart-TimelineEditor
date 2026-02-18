@@ -9,6 +9,12 @@ namespace TimelineEditor.Models
     [JsonPropertyName("length")]
     public double Length { get; set; }
 
+    [JsonPropertyName("reference_pitch")]
+    public float ReferencePitch { get; set; }
+
+    [JsonPropertyName("mid_lane")]
+    public float midLane { get; set; }
+
     [JsonPropertyName("lanes")]
     public int Lanes { get; set; }
 

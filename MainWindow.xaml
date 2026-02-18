@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TimelineEditor"
-        xmlns:vm="clr-namespace:TimelineEditor.ViewModels"
+        xmlns:vm="clr-namespace:TimelineEditor.ViewModels" d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
 		mc:Ignorable="d"
 		PreviewKeyDown="Window_KeyUp"
         Title="Timeline Editor 0.6.0" Height="720" Width="1280" WindowStartupLocation="CenterScreen">
@@ -75,22 +75,22 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Min Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MinFrequencyBox" Width="80" Text="{Binding MinFrequency, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="MinFrequencyBox" Width="80" Text="{Binding MinFrequency, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Max Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="{Binding MaxFrequency, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="{Binding MaxFrequency, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Window Size" Width="120"/>
-						<TextBox x:Name="WindowSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.WindowSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="WindowSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.WindowSize, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Hop Size" Width="120"/>
-						<TextBox x:Name="HopSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.HopSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="HopSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.HopSize, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<!-- STABILITY -->
@@ -98,17 +98,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Smooth Frames" Width="120"/>
-						<TextBox x:Name="SmoothFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.SmoothFrames, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="SmoothFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.SmoothFrames, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Stability Frames" Width="120"/>
-						<TextBox x:Name="StabilityFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.StabilityFrames, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="StabilityFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.StabilityFrames, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Hold Tolerance" Width="120"/>
-						<TextBox x:Name="HoldToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.HoldTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="HoldToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.HoldTolerance, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<!-- NOTES -->
@@ -116,17 +116,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Merge Gap" Width="120"/>
-						<TextBox x:Name="MergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.MergeGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="MergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.MergeGap, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Min Duration" Width="120"/>
-						<TextBox x:Name="MinNoteDurationBox" Width="80" Text="{Binding CurrentConfig.Settings.MinNoteDuration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="MinNoteDurationBox" Width="80" Text="{Binding CurrentConfig.Settings.MinNoteDuration, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Merge Tolerance" Width="120"/>
-						<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.NoteMergeTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.NoteMergeTolerance, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<!--- PHRASES -->
@@ -134,17 +134,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Phrase Gap" Width="120"/>
-						<TextBox x:Name="PhraseGapBox" Width="80" Text="{Binding CurrentConfig.Settings.PhraseGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="PhraseGapBox" Width="80" Text="{Binding CurrentConfig.Settings.PhraseGap, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Pitch Tolerance" Width="120"/>
-						<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.PhrasePitchTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.PhrasePitchTolerance, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Stretch Factor" Width="120"/>
-						<TextBox x:Name="StretchFactorBox" Width="80" Text="{Binding CurrentConfig.Settings.StretchFactor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="StretchFactorBox" Width="80" Text="{Binding CurrentConfig.Settings.StretchFactor, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<!-- Merge Gap -->
@@ -152,7 +152,7 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Final Merge Gap" Width="120"/>
-						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.FinalMergeGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.FinalMergeGap, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
