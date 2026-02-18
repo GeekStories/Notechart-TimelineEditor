@@ -4,25 +4,29 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TimelineEditor"
+        xmlns:vm="clr-namespace:TimelineEditor.ViewModels"
 		mc:Ignorable="d"
 		PreviewKeyDown="Window_KeyUp"
-        Title="Timeline Editor 0.4.0" Height="720" Width="1280" WindowStartupLocation="CenterScreen">
+        Title="Timeline Editor 0.6.0" Height="720" Width="1280" WindowStartupLocation="CenterScreen">
 	<DockPanel LastChildFill="True">
-		<ToolBar DockPanel.Dock="Top" VerticalAlignment="Center">
-			<Button x:Name="OpenFileButton" Content="Open" Click="Browse_Click"/>
-			<Button x:Name="OpenLyricsButton" Content="Open Lyrics" Click="BrowseLyrics_Click"/>
-			<Button x:Name="ImportFileButton" Content="Import Notes" Click="Import_Click"/>
-			<Button x:Name="OpenSettingsWindowButton" Content="Settings" Click="OpenSettings_Click"/>
-			<Button x:Name="GenerateButton" Content="Generate" Click="GenerateNotes_Click" IsEnabled="False"/>
-			<ComboBox x:Name="ConfigSelector" Width="160" Text="No configs found" SelectionChanged="ConfigSelector_SelectionChanged" Margin="10,0,1,0" />
-			<TextBlock x:Name="NoteFileLabel" Text="Note File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-			<TextBlock Text="||" VerticalAlignment="Center" Margin="10,0,10,0" />
-			<TextBlock x:Name="AudioFileLabel" Text="Audio File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-			<TextBlock Text="||" VerticalAlignment="Center" Margin="10,0,10,0" />
-			<TextBlock x:Name="LyricsFileLabel" Text="Lyrics File: (none)" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-		</ToolBar>
+		<Menu DockPanel.Dock="Top" VerticalAlignment="Center">
+			<MenuItem Header="_Audio">
+				<MenuItem Header="Load Vocals" Command="{Binding LoadVocalsCommand}"/>
+				<MenuItem Header="Load Raw" Command="{Binding LoadRawCommand}"/>
+			</MenuItem>
+
+			<MenuItem x:Name="OpenLyricsButton" Header="_Open Lyrics" Command="{Binding BrowseLyricsCommand}"/>
+			<MenuItem x:Name="ImportFileButton" Header="Import Notes" Command="{Binding ImportNotesCommand}"/>
+			<MenuItem x:Name="OpenSettingsWindowButton" Header="Settings" Click="OpenSettings_Click"/>
+			<MenuItem x:Name="GenerateButton" Header="Generate" Command="{Binding GenerateCommand}"/>
+
+			<TextBlock x:Name="NoteFileLabel" Text="{Binding NoteFileLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+			<TextBlock x:Name="AudioFileLabel" Text="{Binding AudioFileLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+			<TextBlock x:Name="LyricsFileLabel" Text="{Binding LyricsFileLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+		</Menu>
+		
 		<!-- Generator Settings -->
-		<Grid Margin="10" Width="250">
+		<Grid Margin="10" Width="250" DockPanel.Dock="Left">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="Auto"/>
 				<!-- CLEAR -->
@@ -40,17 +44,24 @@
 			<StackPanel Grid.Row="0" Orientation="Vertical">
 				<Grid>
 					<Grid.ColumnDefinitions>
-						<ColumnDefinition Width="*" />
-						<ColumnDefinition Width="*" />
+						<ColumnDefinition Width="auto" />
+						<ColumnDefinition Width="auto" />
+						<ColumnDefinition Width="auto" />
 					</Grid.ColumnDefinitions>
-					<StackPanel Grid.Column="0" Margin="0,0,5,0">
-						<Button x:Name="ClearAllButton" Content="Clear Timeline" Click="ClearProject_Click"/>
+					<StackPanel Grid.Column="0">
+						<Button x:Name="ClearAllButton" Content="Clear Timeline" Command="{Binding ClearProjectCommand}"/>
 					</StackPanel>
-					<StackPanel Grid.Column="1" Margin="5,0,0,0">
-						<Button x:Name="SaveTimelineButton" Content="Save Timeline" Click="SaveProject_Click"/>
+					<StackPanel Grid.Column="1" Margin="5,0,5,0">
+						<Button x:Name="SaveTimelineButton" Content="Save Timeline" Command="{Binding SaveProjectCommand}"/>
+					</StackPanel>
+					<StackPanel Grid.Column="2">
+						<Button x:Name="ExportProjectButton" Content="Export Project" Command="{Binding ExportProjectCommand}"/>
 					</StackPanel>
 				</Grid>
-				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,0" Stretch="Fill" X1="1" />
+				<Line Stroke="Gray" StrokeThickness="2" Margin="0,5,0,5" Stretch="Fill" X1="1" />
+				<ComboBox ItemsSource="{Binding Configs}" 
+                          DisplayMemberPath="Profile" 
+                          SelectedItem="{Binding CurrentConfig, Mode=TwoWay}" />
 			</StackPanel>
 
 			<ScrollViewer Grid.Row="1"
@@ -64,22 +75,22 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Min Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MinFrequencyBox" Width="80" Text="70"/>
+						<TextBox x:Name="MinFrequencyBox" Width="80" Text="{Binding MinFrequency, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Max Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="1100"/>
+						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="{Binding MaxFrequency, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Window Size" Width="120"/>
-						<TextBox x:Name="WindowSizeBox" Width="80" Text="2048"/>
+						<TextBox x:Name="WindowSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.WindowSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Hop Size" Width="120"/>
-						<TextBox x:Name="HopSizeBox" Width="80" Text="512"/>
+						<TextBox x:Name="HopSizeBox" Width="80" Text="{Binding CurrentConfig.Settings.HopSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<!-- STABILITY -->
@@ -87,17 +98,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Smooth Frames" Width="120"/>
-						<TextBox x:Name="SmoothFramesBox" Width="80" Text="5"/>
+						<TextBox x:Name="SmoothFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.SmoothFrames, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Stability Frames" Width="120"/>
-						<TextBox x:Name="StabilityFramesBox" Width="80" Text="6"/>
+						<TextBox x:Name="StabilityFramesBox" Width="80" Text="{Binding CurrentConfig.Settings.StabilityFrames, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Hold Tolerance" Width="120"/>
-						<TextBox x:Name="HoldToleranceBox" Width="80" Text="0.75"/>
+						<TextBox x:Name="HoldToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.HoldTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<!-- NOTES -->
@@ -105,17 +116,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Merge Gap" Width="120"/>
-						<TextBox x:Name="MergeGapBox" Width="80" Text="0.12"/>
+						<TextBox x:Name="MergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.MergeGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Min Duration" Width="120"/>
-						<TextBox x:Name="MinNoteDurationBox" Width="80" Text="0.1"/>
+						<TextBox x:Name="MinNoteDurationBox" Width="80" Text="{Binding CurrentConfig.Settings.MinNoteDuration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Merge Tolerance" Width="120"/>
-						<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="0.5"/>
+						<TextBox x:Name="NoteMergeToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.NoteMergeTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<!--- PHRASES -->
@@ -123,17 +134,17 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Phrase Gap" Width="120"/>
-						<TextBox x:Name="PhraseGapBox" Width="80" Text="0.45"/>
+						<TextBox x:Name="PhraseGapBox" Width="80" Text="{Binding CurrentConfig.Settings.PhraseGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Pitch Tolerance" Width="120"/>
-						<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="0.45"/>
+						<TextBox x:Name="PhrasePitchToleranceBox" Width="80" Text="{Binding CurrentConfig.Settings.PhrasePitchTolerance, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Stretch Factor" Width="120"/>
-						<TextBox x:Name="StretchFactorBox" Width="80" Text="1.25"/>
+						<TextBox x:Name="StretchFactorBox" Width="80" Text="{Binding CurrentConfig.Settings.StretchFactor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<!-- Merge Gap -->
@@ -141,19 +152,19 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Final Merge Gap" Width="120"/>
-						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="0.15"/>
+						<TextBox x:Name="FinalMergeGapBox" Width="80" Text="{Binding CurrentConfig.Settings.FinalMergeGap, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Lanes:" Width="120" />
-						<TextBlock x:Name="LaneCountTextBlock" Width="80" Text="" />
+						<TextBlock x:Name="LaneCountTextBlock" Width="80" Text="{Binding LaneCount}" />
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal" Width="250">
 						<UniformGrid Columns="3" Margin="0,10,0,5" HorizontalAlignment="Center" Width="250">
-							<Button Content="Overwrite" Click="SaveGeneratorSettings_Click" Focusable="False"/>
-							<Button Content="Save New" Click="SaveNewGeneratorSettings_Click" Margin="5,0,5,0" Focusable="False"/>
-							<Button Content="Delete" Click="DeleteCurrentConfig_Click" Focusable="False"/>
+							<Button Content="Overwrite" Command="{Binding SaveCurrentConfigCommand}" Focusable="False"/>
+							<Button Content="Save New" Command="{Binding SaveNewConfigCommand}" Margin="5,0,5,0" Focusable="False"/>
+							<Button Content="Delete" Command="{Binding DeleteCurrentConfigCommand}" Focusable="False"/>
 						</UniformGrid>
 					</StackPanel>
 				</StackPanel>
@@ -162,11 +173,13 @@
 			<!-- Output Panel -->
 			<StackPanel Grid.Row="2" VerticalAlignment="Bottom" Background="#FFEAEAEA">
 				<ScrollViewer x:Name="OutputScrollView"
-                VerticalScrollBarVisibility="Auto"
-                HorizontalScrollBarVisibility="Auto">
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto"
+                              MaxHeight="200">
 					<TextBlock x:Name="StatusTextBlock"
-					FontSize="8"
-					TextWrapping="Wrap"/>
+					           FontSize="8"
+					           TextWrapping="Wrap"
+					           Text="{Binding StatusLog}"/>
 				</ScrollViewer>
 			</StackPanel>
 
@@ -181,9 +194,9 @@
 						<ColumnDefinition Width="Auto"/>
 						<ColumnDefinition Width="Auto"/>
 					</Grid.ColumnDefinitions>
-					<CheckBox  Grid.Column="0" x:Name="LoopCheckbox" Content="Loop" VerticalAlignment="Center" Margin="0,0,10,0"/>
+					<CheckBox Grid.Column="0" x:Name="LoopCheckbox" Content="Loop" VerticalAlignment="Center" Margin="0,0,10,0"/>
 					<CheckBox Grid.Column="1" x:Name="FollowPlayheadCheckbox" Content="Autoscroll" VerticalAlignment="Center" Margin="0,0,10,0"/>
-					<TextBlock Grid.Column="2" x:Name="PlayheadLabel" Text="(00:00:00s)" HorizontalAlignment="Right" />
+					<TextBlock Grid.Column="2" x:Name="PlayheadLabel" Text="{Binding PlayheadLabel}" HorizontalAlignment="Right" />
 				</Grid>
 				<Grid HorizontalAlignment="Right" Margin="0,5,0,5">
 					<Grid.ColumnDefinitions>
@@ -191,9 +204,9 @@
 						<ColumnDefinition Width="Auto"/>
 						<ColumnDefinition Width="Auto"/>
 					</Grid.ColumnDefinitions>
-					<Button Grid.Column="0" Content="▶ Play" Click="Play_Click" Padding="5,5,5,5" />
-					<Button Grid.Column="1" Content="⏸ Pause" Click="Stop_Click" Padding="5,5,5,5" Margin="5,0,5,0"/>
-					<Button Grid.Column="2" Content="⏮ Reset" Click="Reset_Click" Padding="5,5,5,5"/>
+					<Button Grid.Column="0" Content="▶ Play" Command="{Binding PlayCommand}" Padding="5,5,5,5" />
+					<Button Grid.Column="1" Content="⏸ Pause" Command="{Binding StopCommand}" Padding="5,5,5,5" Margin="5,0,5,0"/>
+					<Button Grid.Column="2" Content="⏮ Reset" Command="{Binding ResetCommand}" Padding="5,5,5,5"/>
 				</Grid>
 			</StackPanel>
 		</Grid>

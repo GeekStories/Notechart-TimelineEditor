@@ -46,5 +46,17 @@ namespace TimelineEditor.Properties {
                 this["LastConfigFile"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string ffmpeg {
+            get {
+                return ((string)(this["ffmpeg"]));
+            }
+            set {
+                this["ffmpeg"] = value;
+            }
+        }
     }
 }

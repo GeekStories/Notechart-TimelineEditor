@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using System.Windows.Forms;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace TimelineEditor {
   /// <summary>
@@ -9,6 +10,7 @@ namespace TimelineEditor {
     public SettingsWindow() {
       InitializeComponent();
       ConfigPathTextBox.Text = Properties.Settings.Default.ConfigFolder;
+      ffmpegPathTextBox.Text = Properties.Settings.Default.ffmpeg;
     }
 
     private void BrowseConfigFolder_Click(object sender, RoutedEventArgs e) {
@@ -22,9 +24,21 @@ namespace TimelineEditor {
         ConfigPathTextBox.Text = dialog.SelectedPath;
       }
     }
+    private void BrowserFFMPEG_Click(object sender, RoutedEventArgs e) {
+      using var dialog = new OpenFileDialog {
+        Title = "Select ffmpeg executable",
+        Filter = "Executable files (*.exe)|*.exe|All files (*.*)|*.*",
+        CheckFileExists = true
+      };
+      if(dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK) {
+        ffmpegPathTextBox.Text = dialog.FileName;
+        Properties.Settings.Default.Save();
+      }
+    }
 
-    private void Ok_Click(object sender, RoutedEventArgs e) {
+    private void SaveSettings_Click(object sender, RoutedEventArgs e) {
       Properties.Settings.Default.ConfigFolder = ConfigPathTextBox.Text;
+      Properties.Settings.Default.ffmpeg = ffmpegPathTextBox.Text;
       Properties.Settings.Default.Save();
 
       // Reload configs immediately after changing the folder

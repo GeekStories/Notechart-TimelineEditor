@@ -12,28 +12,44 @@
 			<RowDefinition Height="Auto"/>
 			<RowDefinition Height="Auto"/>
 			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
 		</Grid.RowDefinitions>
 
-		<TextBlock Text="Configuration Folder" FontWeight="Bold"/>
+		<TextBlock Grid.Row="0" Text="Configuration Folder" FontWeight="Bold"/>
 
 		<DockPanel Grid.Row="1" Margin="0,8,0,0">
 			<TextBox x:Name="ConfigPathTextBox"
                      Margin="0,0,8,0"
-                     VerticalContentAlignment="Center"/>
+                     VerticalContentAlignment="Center"
+					 Width="300"/>
 
 			<Button Content="Browse..."
                     Width="80"
                     Click="BrowseConfigFolder_Click"/>
 		</DockPanel>
 
-		<StackPanel Grid.Row="2"
+		<TextBlock Grid.Row="2" Text="FFMPEG" FontWeight="Bold"/>
+
+		<DockPanel Grid.Row="3" Margin="0,8,0,0">
+			<TextBox x:Name="ffmpegPathTextBox"
+                     Margin="0,0,8,0"
+                     VerticalContentAlignment="Center"
+					 Width="300"/>
+
+			<Button Content="Browse..."
+                    Width="80"
+                    Click="BrowserFFMPEG_Click"/>
+		</DockPanel>
+
+		<StackPanel Grid.Row="4"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,16,0,0">
-			<Button Content="OK"
+			<Button Content="Save"
                     Width="80"
                     Margin="0,0,8,0"
-                    Click="Ok_Click"/>
+                    Click="SaveSettings_Click"/>
 			<Button Content="Cancel"
                     Width="80"
                     Click="Cancel_Click"/>
