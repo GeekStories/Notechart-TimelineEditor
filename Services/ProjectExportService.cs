@@ -59,7 +59,7 @@ namespace TimelineEditor.Services {
           // Serialize timeline to JSON
           progress?.Report("Preparing notechart data...");
           string notechartJson = JsonSerializer.Serialize(timeline, new JsonSerializerOptions { 
-            WriteIndented = true 
+            WriteIndented = true,
           });
           string tempNotechartPath = Path.Combine(tempDir, "notechart.json");
           await File.WriteAllTextAsync(tempNotechartPath, notechartJson);

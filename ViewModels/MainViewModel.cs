@@ -324,8 +324,17 @@ namespace TimelineEditor.ViewModels {
           return;
         }
 
+        // Preserve existing lyrics when loading a new timeline
+        var existingLyrics = Timeline?.Lyrics ?? new List<Lyric>();
+
         NoteFileLabel = $"Note File: {Path.GetFileName(path)}";
         Timeline = loaded;
+
+        // Restore lyrics if they were previously loaded and the new timeline doesn't have them
+        if(existingLyrics.Count > 0 && (Timeline.Lyrics == null || Timeline.Lyrics.Count == 0)) {
+          Timeline.Lyrics = existingLyrics;
+        }
+
         LaneCount = $"{Timeline.Lanes}";
 
         StatusMessage = $"Imported Notes: {Path.GetFileName(path)}";
