@@ -583,8 +583,8 @@ namespace TimelineEditor {
     }
 
     private double MidiToY(double midi) {
-      double minMidi = FrequencyToMidi(double.Parse(VM.MinFrequency));
-      double maxMidi = FrequencyToMidi(double.Parse(VM.MaxFrequency));
+      double minMidi = FrequencyToMidi(VM.CurrentConfig?.Settings.MinFreq ?? 70.0);
+      double maxMidi = FrequencyToMidi(VM.CurrentConfig?.Settings.MaxFreq ?? 1100.0);
       double pitchHeightFraction = 0.5;
       double pitchHeight = PitchCanvas.ActualHeight * pitchHeightFraction;
       double topOffset = PitchCanvas.ActualHeight * (1 - pitchHeightFraction);

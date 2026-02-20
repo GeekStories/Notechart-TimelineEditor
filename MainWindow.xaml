@@ -65,22 +65,28 @@
 			</StackPanel>
 
 			<ScrollViewer Grid.Row="1"
-              VerticalScrollBarVisibility="Auto"
-              HorizontalScrollBarVisibility="Disabled">
+			  VerticalScrollBarVisibility="Auto"
+			  HorizontalScrollBarVisibility="Disabled">
 				<StackPanel>
 					<TextBlock Text="Generator Settings" FontWeight="Bold" Margin="0,5"/>
+
+					<!-- PROFILE -->
+					<StackPanel Orientation="Horizontal" Margin="0,5,0,10">
+						<TextBlock Text="Profile Name" Width="120"/>
+						<TextBox x:Name="ProfileNameBox" Width="80" Text="{Binding CurrentConfig.Profile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+					</StackPanel>
 
 					<!-- ANALYSIS -->
 					<TextBlock Text="Analysis" FontWeight="SemiBold" Margin="0,5"/>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Min Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MinFrequencyBox" Width="80" Text="{Binding MinFrequency, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
+						<TextBox x:Name="MinFrequencyBox" Width="80" Text="{Binding CurrentConfig.Settings.MinFreq, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Max Freq. (Hz)" Width="120"/>
-						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="{Binding MaxFrequency, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
+						<TextBox x:Name="MaxFrequencyBox" Width="80" Text="{Binding CurrentConfig.Settings.MaxFreq, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"/>
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal">
@@ -157,7 +163,7 @@
 
 					<StackPanel Orientation="Horizontal">
 						<TextBlock Text="Lanes:" Width="120" />
-						<TextBlock x:Name="LaneCountTextBlock" Width="80" Text="{Binding LaneCount}" />
+						<TextBlock x:Name="LaneCountTextBlock" Width="80" Text="{Binding CurrentConfig.Settings.LaneRange}" />
 					</StackPanel>
 
 					<StackPanel Orientation="Horizontal" Width="250">
@@ -175,6 +181,7 @@
 				<ScrollViewer x:Name="OutputScrollView"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Auto"
+							  MinHeight="30"
                               MaxHeight="200">
 					<TextBlock x:Name="StatusTextBlock"
 					           FontSize="8"

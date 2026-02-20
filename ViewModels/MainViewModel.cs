@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Input;
 using TimelineEditor.Models;
 using TimelineEditor.Services;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TimelineEditor.ViewModels {
   public class MainViewModel : INotifyPropertyChanged {
@@ -63,8 +64,11 @@ namespace TimelineEditor.ViewModels {
         if(_selectedConfig == value) return;
         _selectedConfig = value;
         OnPropertyChanged();
-        if(value != null)
-          LoadConfig(value);
+
+        if(value != null) {
+          Properties.Settings.Default.LastConfigFile = value.Profile;
+          Properties.Settings.Default.Save();
+        }
       }
     }
 
@@ -114,15 +118,6 @@ namespace TimelineEditor.ViewModels {
       }
     }
 
-    private string _laneCount = "4";
-    public string LaneCount {
-      get => _laneCount;
-      set {
-        _laneCount = value;
-        OnPropertyChanged();
-      }
-    }
-
     private double _visualTime;
     public double VisualTime {
       get => _visualTime;
@@ -137,24 +132,6 @@ namespace TimelineEditor.ViewModels {
       get => _anchorAudioTime;
       set {
         _anchorAudioTime = value;
-        OnPropertyChanged();
-      }
-    }
-
-    private string _minFrequency = "80";
-    public string MinFrequency {
-      get => _minFrequency;
-      set {
-        _minFrequency = value;
-        OnPropertyChanged();
-      }
-    }
-
-    private string _maxFrequency = "800";
-    public string MaxFrequency {
-      get => _maxFrequency;
-      set {
-        _maxFrequency = value;
         OnPropertyChanged();
       }
     }
@@ -334,8 +311,6 @@ namespace TimelineEditor.ViewModels {
         if(existingLyrics.Count > 0 && (Timeline.Lyrics == null || Timeline.Lyrics.Count == 0)) {
           Timeline.Lyrics = existingLyrics;
         }
-
-        LaneCount = $"{Timeline.Lanes}";
 
         StatusMessage = $"Imported Notes: {Path.GetFileName(path)}";
         DrawTimelineRequested?.Invoke();
@@ -631,7 +606,6 @@ namespace TimelineEditor.ViewModels {
           if(settings == null) continue;
 
           Configs.Add(new ConfigItem {
-            Profile = settings.Profile,
             Path = path,
             Settings = settings
           });
@@ -640,23 +614,42 @@ namespace TimelineEditor.ViewModels {
         }
       }
 
-      string lastFile = TimelineEditor.Properties.Settings.Default.LastConfigFile;
+      string lastFile = Properties.Settings.Default.LastConfigFile;
       CurrentConfig = Configs.FirstOrDefault(c => c.Profile == lastFile)
                      ?? Configs.FirstOrDefault();
+
+      if(CurrentConfig != null) {
+        LoadConfig(CurrentConfig);
+        StatusMessage = $"Loaded configuration: {CurrentConfig.Profile}";
+      }
     }
 
     private void LoadConfig(ConfigItem profile) {
-      TimelineEditor.Properties.Settings.Default.LastConfigFile = profile.Profile;
-      TimelineEditor.Properties.Settings.Default.Save();
-      StatusMessage = $"Loaded configuration: {profile.Profile}.json";
+      Properties.Settings.Default.LastConfigFile = profile.Profile;
+      Properties.Settings.Default.Save();
     }
 
     private void SaveCurrentConfig() {
       if(CurrentConfig == null) return;
-      
+
       try {
+        // Check if profile name changed and update the file path
+        string expectedFileName = $"{CurrentConfig.Settings.Profile}.json";
+        string expectedPath = Path.Combine(ConfigFolder, expectedFileName);
+        string oldPath = CurrentConfig.Path;
+
+        // Save to the correct path
         string json = JsonSerializer.Serialize(CurrentConfig.Settings, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(CurrentConfig.Path, json);
+        File.WriteAllText(expectedPath, json);
+
+        // If the profile name changed, delete the old file and update the path
+        if(oldPath != expectedPath && File.Exists(oldPath)) {
+          File.Delete(oldPath);
+          CurrentConfig.Path = expectedPath;
+        }
+
+        // Force UI refresh for ComboBox
+        OnPropertyChanged(nameof(CurrentConfig));
         StatusMessage = $"Saved configuration: {CurrentConfig.Profile}";
       } catch(Exception ex) {
         StatusMessage = $"Error saving config: {ex.Message}";
@@ -665,18 +658,20 @@ namespace TimelineEditor.ViewModels {
 
     private void SaveNewConfig() {
       if(CurrentConfig == null) return;
-      
+
       var dlg = new SaveFileDialog {
         Filter = "JSON Files (*.json)|*.json",
         InitialDirectory = ConfigFolder,
         FileName = "new_config.json"
       };
-      
+
       if(dlg.ShowDialog() == true) {
         try {
           string json = JsonSerializer.Serialize(CurrentConfig.Settings, new JsonSerializerOptions { WriteIndented = true });
           File.WriteAllText(dlg.FileName, json);
           StatusMessage = $"Saved new configuration: {Path.GetFileName(dlg.FileName)}";
+
+          // Reload all configs to pick up the new one
           LoadConfigs();
         } catch(Exception ex) {
           StatusMessage = $"Error saving config: {ex.Message}";
@@ -705,7 +700,7 @@ namespace TimelineEditor.ViewModels {
       }
     }
 
-    private static string ConfigFolder => TimelineEditor.Properties.Settings.Default.ConfigFolder;
+    private static string ConfigFolder => Properties.Settings.Default.ConfigFolder;
     #endregion
 
     #region Helpers
