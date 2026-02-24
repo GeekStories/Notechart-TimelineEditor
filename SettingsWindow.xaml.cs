@@ -1,6 +1,5 @@
 ﻿using System.Windows;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 
 namespace TimelineEditor {
   /// <summary>

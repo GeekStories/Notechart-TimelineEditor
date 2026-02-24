@@ -9,7 +9,6 @@ using System.Windows;
 using System.Windows.Input;
 using TimelineEditor.Models;
 using TimelineEditor.Services;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TimelineEditor.ViewModels {
   public class MainViewModel : INotifyPropertyChanged {
@@ -30,7 +29,6 @@ namespace TimelineEditor.ViewModels {
     // Commands
     public ICommand ImportNotesCommand { get; }
     public ICommand BrowseAudioCommand { get; }
-    public ICommand BrowseLyricsCommand { get; }
     public ICommand ClearProjectCommand { get; }
     public ICommand SaveProjectCommand { get; }
     public ICommand ExportProjectCommand { get; } // NEW
@@ -136,7 +134,6 @@ namespace TimelineEditor.ViewModels {
       }
     }
 
-    private string _lyricsPath = string.Empty;
     private string _audioPath = string.Empty;
     private string _rawAudioPath = string.Empty; // NEW: Track raw audio path
 
@@ -163,11 +160,15 @@ namespace TimelineEditor.ViewModels {
     public event Action? DrawTimelineRequested;
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    // Public method to trigger timeline redraw
+    public void RequestDrawTimeline() {
+      DrawTimelineRequested?.Invoke();
+    }
+
     public MainViewModel() {
       // Initialize Commands
       ImportNotesCommand = new RelayCommand(_ => ImportNotes());
       BrowseAudioCommand = new RelayCommand(_ => BrowseAudio());
-      BrowseLyricsCommand = new RelayCommand(_ => BrowseLyrics());
       ClearProjectCommand = new RelayCommand(_ => ClearProject());
       SaveProjectCommand = new RelayCommand(_ => SaveProject());
       ExportProjectCommand = new RelayCommand(_ => ExportProject()); // NEW
@@ -312,50 +313,18 @@ namespace TimelineEditor.ViewModels {
           Timeline.Lyrics = existingLyrics;
         }
 
+        // Update lyrics label
+        if(Timeline.Lyrics != null && Timeline.Lyrics.Count > 0) {
+          LyricsFileLabel = $"Lyrics: {Timeline.Lyrics.Count} line(s)";
+        } else {
+          LyricsFileLabel = "Lyrics: (none)";
+        }
+
         StatusMessage = $"Imported Notes: {Path.GetFileName(path)}";
         DrawTimelineRequested?.Invoke();
       } catch(Exception ex) {
         Debug.WriteLine(ex);
         StatusMessage = "Failed to load timeline from selected file";
-      }
-    }
-
-    private void BrowseLyrics() {
-      if(_audioService.VocalTrack == null) {
-        MessageBox.Show("Please load an audio file before importing lyrics.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        return;
-      }
-
-      OpenFileDialog dlg = new() {
-        Filter = "JSON Files (*.json)|*.json"
-      };
-
-      if(dlg.ShowDialog() == true) {
-        _lyricsPath = dlg.FileName;
-        LyricsFileLabel = $"Lyrics File: {Path.GetFileName(_lyricsPath)}";
-
-        Timeline.Lyrics = LoadLyrics(_lyricsPath);
-        DrawTimelineRequested?.Invoke();
-      }
-    }
-
-    private List<Lyric> LoadLyrics(string path) {
-      try {
-        string json = File.ReadAllText(path);
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        List<Lyric>? phrases = JsonSerializer.Deserialize<List<Lyric>>(json, options);
-        
-        if(phrases == null) {
-          MessageBox.Show("Failed to load lyrics from the selected file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-          return new List<Lyric>();
-        }
-        
-        StatusMessage = $"Loaded {phrases.Count} lyric phrases.";
-        return phrases;
-      } catch(Exception ex) {
-        Debug.WriteLine(ex);
-        StatusMessage = "Failed to load lyrics from selected file";
-        return new List<Lyric>();
       }
     }
 
@@ -367,6 +336,7 @@ namespace TimelineEditor.ViewModels {
       Stop();
       Timeline = new();
       NoteFileLabel = "Note File: (none)";
+      LyricsFileLabel = "Lyrics File: (none)";
       DrawTimelineRequested?.Invoke();
     }
 
@@ -546,7 +516,7 @@ namespace TimelineEditor.ViewModels {
     private bool IsOverlapping(Note note, double start, double duration) {
       return Timeline.Notes.Any(n =>
         n != note &&
-        n.Lane == note.Lane &&
+        //n.Lane == note.Lane &&
         n.Start < start + duration &&
         n.Start + n.Duration > start
       );
@@ -556,7 +526,7 @@ namespace TimelineEditor.ViewModels {
       return Timeline.Notes
         .Where(n =>
           n != anchor &&
-          n.Lane == anchor.Lane &&
+          //n.Lane == anchor.Lane &&
           n.Start < anchor.Start + anchor.Duration &&
           n.Start + n.Duration > anchor.Start
         )

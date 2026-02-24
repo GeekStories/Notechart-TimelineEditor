@@ -1,0 +1,45 @@
+﻿<Window x:Name="LyricsWindow1" x:Class="TimelineEditor.LyricsWindow"
+	  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	  Title="Lyrics Editor"
+	  Width="500"
+	  Height="350"
+	  WindowStartupLocation="CenterOwner"
+	  ResizeMode="NoResize"
+	  PreviewKeyDown="Window_PreviewKeyDown">
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+
+		<TextBox x:Name="LyricsTextBox" 
+				 Grid.Row="0"
+				 Margin="10,10,10,5" 
+				 AcceptsReturn="True" 
+				 VerticalScrollBarVisibility="Auto" 
+				 HorizontalScrollBarVisibility="Auto"
+				 TextWrapping="Wrap"/>
+
+		<StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="10,5,10,5">
+			<Button x:Name="LoadLyricsButton" Content="Load Lyrics" Width="100" Height="30" Click="LoadLyricsButton_Click" Margin="0,0,5,0"/>
+			<Button x:Name="ClearButton" Content="Clear Text" Width="80" Height="30" Click="ClearButton_Click"/>
+		</StackPanel>
+
+		<Border Grid.Row="2" BorderBrush="Gray" BorderThickness="1" Margin="10,5,10,5" Padding="10" Background="#F5F5F5">
+			<StackPanel>
+				<TextBlock x:Name="QueueStatusText" Text="No lyrics loaded" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
+				<TextBlock x:Name="CurrentLyricText" Text="" FontSize="14" Foreground="#333" TextWrapping="Wrap" MinHeight="20" Margin="0,0,0,5"/>
+				<TextBlock x:Name="HintText" Text="Tip: Press Space or Enter to place lyric at playhead position" FontSize="10" Foreground="#666" FontStyle="Italic"/>
+			</StackPanel>
+		</Border>
+
+		<StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="10,5,10,10">
+			<Button x:Name="UndoButton" Content="◀ Undo Last" Width="100" Height="35" Click="UndoButton_Click" IsEnabled="False" Margin="0,0,5,0"/>
+			<Button x:Name="PlaceNextButton" Content="Place Next ▶" Width="120" Height="35" Click="PlaceNextButton_Click" IsEnabled="False" FontWeight="Bold" Margin="0,0,5,0"/>
+			<Button x:Name="ClearAllLyricsButton" Content="Clear All" Width="80" Height="35" Click="ClearAllLyricsButton_Click" Margin="0,0,0,0"/>
+		</StackPanel>
+	</Grid>
+</Window>

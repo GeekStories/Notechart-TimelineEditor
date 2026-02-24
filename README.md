@@ -4,8 +4,8 @@
 
 ## Features
 
-- Load audio files and view pitch graphs
-- Edit, move, or delete notes interactively
+- Load audio files and view pitch data
+- Edit, move, or delete notes and lyrics interactively
 - Generate timelines with [`notechart`](#notechart) and visualize them
 - Export data for Unity or other projects
 
@@ -14,14 +14,10 @@
 - Windows OS
 - .NET 6.0 or later
 - Python with [`notechart`](#notechart) installed
-
-```bash
-pip install notechart
-```
-
 - NAudio and NWaves (included via NuGet)
 
 ## Installation
+
 No install required, simply download the latest release binary and run it.
 Download latest release from the [GitHub Releases](https://github.com/GeekStories/Notechart-TimelineEditor/releases)
 
@@ -34,27 +30,22 @@ git clone https://github.com/GeekStories/Notechart-TimelineEditor.git
 cd timeline-editor
 ```
 
-Build the project:
+Publishing the project:
 
 ```bash
-dotnet build
-```
-
-Run the editor:
-
-```bash
-dotnet run
+dotnet publish --configuration Release --runtime win-x64 --self-contained true
 ```
 
 ## Usage
 
+_Note: Audio file must be .WAV. Vocal Stem only for more accurate results_
+
 1. Load an audio file (WAV recommended) or existing timeline data file.
-*Note: Audio file must be .WAV, Mono, Vocal Track (Only Vocals, no other sound) for more accuerate results*
 2. Adjust Generation settings as needed.
 3. The pitch and notes are generated automatically.
-3. Scroll and edit notes on the timeline.
-5. Export timeline data for use in projects, or OpenStar.
-
+4. Scroll and edit notes on the timeline.
+5. Add lyrics and adjust the start/end for each line.
+6. Export timeline data for use in projects, or OpenStar.
 
 # notechart
 

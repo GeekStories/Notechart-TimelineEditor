@@ -15,7 +15,7 @@
 				<MenuItem Header="Load Raw" Command="{Binding LoadRawCommand}"/>
 			</MenuItem>
 
-			<MenuItem x:Name="OpenLyricsButton" Header="_Open Lyrics" Command="{Binding BrowseLyricsCommand}"/>
+			<MenuItem x:Name="OpenLyricsButton" Header="_Open Lyrics" Click="OpenLyrics_Click"/>
 			<MenuItem x:Name="ImportFileButton" Header="Import Notes" Command="{Binding ImportNotesCommand}"/>
 			<MenuItem x:Name="OpenSettingsWindowButton" Header="Settings" Click="OpenSettings_Click"/>
 			<MenuItem x:Name="GenerateButton" Header="Generate" Command="{Binding GenerateCommand}"/>
@@ -238,19 +238,14 @@
               ScrollChanged="TimelineScrollViewer_ScrollChanged"
               PreviewMouseWheel="TimelineScrollViewer_PreviewMouseWheel">
 			<Grid x:Name="TimelineGrid" Background="#141414" VerticalAlignment="stretch">
-				<Grid.ColumnDefinitions>
-					<ColumnDefinition Width="423*"/>
-					<ColumnDefinition Width="17*"/>
-					<ColumnDefinition Width="570*"/>
-				</Grid.ColumnDefinitions>
 				<!-- Layer 0: Time Grid -->
 				<Canvas x:Name="GridCanvas" IsHitTestVisible="False" Grid.ColumnSpan="3" />
 				<!-- Layer 1: Pitch Graph -->
 				<Canvas x:Name="PitchCanvas" Background="Transparent" IsHitTestVisible="False" Grid.ColumnSpan="3"/>
-				<!-- Layer 2: Lyrics -->
-				<Canvas x:Name="LyricsCanvas" Background="Transparent" Grid.ColumnSpan="3" />
-				<!-- Layer 3: Notes -->
+				<!-- Layer 2: Notes -->
 				<Canvas x:Name="NotesCanvas" Background="Transparent" MouseUp="Timeline_MouseUp" MouseMove="NotesCanvas_MouseMove" Grid.ColumnSpan="3" />
+				<!-- Layer 3: Lyrics (no background = click-through to layer below) -->
+				<Canvas x:Name="LyricsCanvas" Grid.ColumnSpan="3" />
 				<!-- Layer 4: Playhead -->
 				<Canvas x:Name="PlayheadCanvas" Background="Transparent" IsHitTestVisible="False" Grid.ColumnSpan="3" />
 			</Grid>

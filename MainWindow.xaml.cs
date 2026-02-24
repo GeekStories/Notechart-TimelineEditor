@@ -40,12 +40,20 @@ namespace TimelineEditor {
     private double dragStartX;
     private double dragStartY;
 
+    // Lyric dragging state
+    private Border? draggedLyricBorder;
+    private Lyric? draggedLyric;
+    private Lyric? originalLyric;
+    private double originalLyricLeft;
+    private double originalLyricWidth;
+
     // Minimap
     private Rectangle? minimapViewport;
     private bool isDraggingMinimap = false;
 
     // Services
     private SettingsWindow SettingsWindow = new();
+    private LyricsWindow LyricsWindow = new();
 
     public MainWindow() {
       InitializeComponent();
@@ -248,6 +256,23 @@ namespace TimelineEditor {
         SettingsWindow.Show();
       }
     }
+    private void OpenLyrics_Click(object sender, RoutedEventArgs e) {
+      if(LyricsWindow.IsVisible) {
+        LyricsWindow.Focus();
+      } else {
+        // Reuse existing window instance to preserve textbox content
+        if(LyricsWindow.ViewModel == null) {
+          LyricsWindow.ViewModel = VM;
+          LyricsWindow.Closing += (s, args) => {
+            // Hide instead of closing to preserve state
+            args.Cancel = true;
+            LyricsWindow.Hide();
+            DrawTimeline();
+          };
+        }
+        LyricsWindow.Show();
+      }
+    }
     #endregion
 
     #region Note Manipulation (View Logic Only)
@@ -368,6 +393,134 @@ namespace TimelineEditor {
         .FirstOrDefault();
 
       return next != null ? next.Start : VM.TimelineWidthSeconds;
+    }
+    #endregion
+
+    #region Lyric Manipulation
+    private void Lyric_MouseDown(object sender, MouseButtonEventArgs e) {
+      if(sender is not Border border) return;
+      if(border.Tag is not Lyric lyric) return;
+
+      originalLyric = new Lyric {
+        Start = lyric.Start,
+        End = lyric.End,
+        Text = lyric.Text
+      };
+
+      originalLyricLeft = Canvas.GetLeft(border);
+      originalLyricWidth = border.Width;
+
+      draggedLyricBorder = border;
+      draggedLyric = lyric;
+
+      dragStartMouse = e.GetPosition(LyricsCanvas);
+      dragStartX = Canvas.GetLeft(border);
+
+      Point localPos = e.GetPosition(border);
+
+      if(localPos.X <= MainViewModel.ResizeHandleWidth) {
+        dragMode = DragMode.ResizeLeft;
+      } else if(localPos.X >= border.Width - MainViewModel.ResizeHandleWidth) {
+        dragMode = DragMode.ResizeRight;
+      } else {
+        dragMode = DragMode.Move;
+      }
+
+      border.CaptureMouse();
+      e.Handled = true;
+    }
+
+    private void Lyric_MouseMove(object sender, MouseEventArgs e) {
+      if(sender is not Border border) return;
+
+      // Update cursor based on position
+      if(draggedLyricBorder == null) {
+        var p = e.GetPosition(border);
+        if(p.X < MainViewModel.ResizeHandleWidth || p.X > border.Width - MainViewModel.ResizeHandleWidth)
+          border.Cursor = Cursors.SizeWE;
+        else
+          border.Cursor = Cursors.Hand;
+      }
+
+      // Handle dragging
+      if(draggedLyricBorder == null || draggedLyric == null) return;
+      if(e.LeftButton != MouseButtonState.Pressed) return;
+
+      Point pos = e.GetPosition(LyricsCanvas);
+      Vector delta = pos - dragStartMouse;
+
+      if(dragMode == DragMode.Move) {
+        MoveLyric(delta);
+      } else if(dragMode == DragMode.ResizeLeft) {
+        ResizeLyricLeft(delta);
+      } else if(dragMode == DragMode.ResizeRight) {
+        ResizeLyricRight(delta);
+      }
+    }
+
+    private void Lyric_MouseUp(object sender, MouseButtonEventArgs e) {
+      if(draggedLyricBorder == null || draggedLyric == null) return;
+
+      draggedLyricBorder.ReleaseMouseCapture();
+
+      // Validate times
+      if(draggedLyric.Start < 0) {
+        draggedLyric.Start = originalLyric!.Start;
+        draggedLyric.End = originalLyric.End;
+      }
+
+      if(draggedLyric.End <= draggedLyric.Start) {
+        draggedLyric.Start = originalLyric!.Start;
+        draggedLyric.End = originalLyric.End;
+      }
+
+      dragMode = DragMode.None;
+      draggedLyricBorder = null;
+      draggedLyric = null;
+      originalLyric = null;
+
+      DrawLyrics();
+    }
+
+    private void MoveLyric(Vector delta) {
+      if(draggedLyric == null || draggedLyricBorder == null) return;
+
+      double newX = Math.Max(0, dragStartX + delta.X);
+      Canvas.SetLeft(draggedLyricBorder, newX);
+
+      double duration = draggedLyric.End - draggedLyric.Start;
+      draggedLyric.Start = Math.Round(newX / MainViewModel.PixelsPerSecond, 3);
+      draggedLyric.End = Math.Round(draggedLyric.Start + duration, 3);
+    }
+
+    private void ResizeLyricRight(Vector delta) {
+      double newWidth = originalLyricWidth + delta.X;
+      double minWidth = 0.1 * MainViewModel.PixelsPerSecond;
+
+      newWidth = Math.Max(newWidth, minWidth);
+
+      draggedLyricBorder!.Width = newWidth;
+      draggedLyric!.End = Math.Round(draggedLyric.Start + (newWidth / MainViewModel.PixelsPerSecond), 3);
+    }
+
+    private void ResizeLyricLeft(Vector delta) {
+      double newLeft = originalLyricLeft + delta.X;
+      newLeft = Math.Max(newLeft, 0);
+
+      double rightEdge = originalLyricLeft + originalLyricWidth;
+      double newWidth = rightEdge - newLeft;
+
+      double minWidth = 0.1 * MainViewModel.PixelsPerSecond;
+      if(newWidth < minWidth) {
+        newWidth = minWidth;
+        newLeft = rightEdge - newWidth;
+      }
+
+      Canvas.SetLeft(draggedLyricBorder!, newLeft);
+      draggedLyricBorder!.Width = newWidth;
+
+      draggedLyric!.Start = Math.Round(newLeft / MainViewModel.PixelsPerSecond, 3);
+      draggedLyric.End = Math.Round(draggedLyric.Start + (newWidth / MainViewModel.PixelsPerSecond), 3);
     }
     #endregion
 
@@ -667,7 +820,6 @@ namespace TimelineEditor {
     }
 
     private void DrawLyrics() {
-      if(VM.Timeline.Lyrics.Count == 0) return;
       LyricsCanvas.Children.Clear();
 
       foreach(Lyric l in VM.Timeline.Lyrics) {
@@ -682,7 +834,10 @@ namespace TimelineEditor {
           CornerRadius = new CornerRadius(12),
           Padding = new Thickness(5),
           Margin = new Thickness(5, 0, 0, 5),
-          HorizontalAlignment = HorizontalAlignment.Stretch
+          HorizontalAlignment = HorizontalAlignment.Stretch,
+          Tag = l,
+          IsHitTestVisible = true,
+          Cursor = Cursors.Hand
         };
 
         TextBlock text = new() {
@@ -694,13 +849,25 @@ namespace TimelineEditor {
           VerticalAlignment = VerticalAlignment.Center,
           HorizontalAlignment = HorizontalAlignment.Stretch,
           LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+          IsHitTestVisible = false
         };
 
         border.Child = text;
 
         Canvas.SetLeft(border, TimeToCanvasX(l.Start));
-        Canvas.SetRight(border, TimeToCanvasX(l.End));
         Canvas.SetTop(border, 10);
+
+        // Add mouse event handlers for dragging and resizing
+        border.MouseLeftButtonDown += Lyric_MouseDown;
+        border.MouseMove += Lyric_MouseMove;
+        border.MouseLeftButtonUp += Lyric_MouseUp;
+        border.MouseRightButtonUp += (_, __) => {
+          if(MessageBox.Show($"Remove lyric: \"{l.Text}\"?", "Confirm", MessageBoxButton.YesNo) == MessageBoxResult.Yes) {
+            VM.Timeline.Lyrics.Remove(l);
+            DrawLyrics();
+            DrawMinimap();
+          }
+        };
 
         LyricsCanvas.Children.Add(border);
       }
